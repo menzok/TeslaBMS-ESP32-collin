@@ -1,7 +1,7 @@
 #pragma once
 #include "config.h"
 #include "BMSModule.h"
-#include <esp32_can.h>
+
 
 class BMSModuleManager
 {
@@ -15,12 +15,12 @@ public:
     void sleepBoards();
     void wakeBoards();
     void getAllVoltTemp();
-    void readSetpoints();
-    void setBatteryID();
+   // void readSetpoints();
+   void setBatteryID();
     float getPackVoltage();
     float getAvgTemperature();
     float getAvgCellVolt();
-    void processCANMsg(CAN_FRAME &frame);
+   // void processCANMsg(CAN_FRAME &frame);
     void printPackSummary();
     void printPackDetails();
 
