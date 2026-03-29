@@ -1,66 +1,123 @@
-#include "Logger.h"
+﻿#include "Logger.h"
 #include "SerialConsole.h"
 #include "BMSModuleManager.h"
-// Removed: SystemIO.h and any CAN include
 
-#define BMS_BAUD  612500 //612500
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+WiFiClient espClient;
+PubSubClient mqtt(espClient);
+
+// ==================== CHANGE THESE ====================
+const char* ssid = "Zoom";
+const char* password = "gdr543l7";
+const char* mqtt_server = "192.168.1.213";   // ← your Pi IP
+// =======================================================
+
+#define BMS_BAUD  612500
 
 BMSModuleManager bms;
 EEPROMSettings settings;
 SerialConsole console;
-uint32_t lastUpdate;
+uint32_t lastUpdate = 0;
 
-void loadSettings()
-{
+void loadSettings() {
     Logger::console("Resetting to factory defaults");
     settings.version = EEPROM_VERSION;
     settings.checksum = 0;
-    settings.logLevel = 2;          // removed canSpeed + batteryID
-
+    settings.logLevel = 2;
     Logger::setLoglevel((Logger::LogLevel)settings.logLevel);
 }
 
-// REMOVED: entire initializeCAN() function
-
-void setup()
-{
+void setup() {
     delay(2000);
     SERIALCONSOLE.begin(115200);
-    SERIALCONSOLE.println("Tesla BMS ESP32-WROOM - CAN stripped");
+    SERIALCONSOLE.println("\n=== TeslaBMS MQTT for dbus-mqtt-devices ===");
 
-    // BMS UART on ESP32 (pins 16=RX, 17=TX - matches original wiring)
     SERIAL.begin(BMS_BAUD, SERIAL_8N1, 16, 17);
 
-    SERIALCONSOLE.println("Started serial interface to BMS.");
-
     pinMode(13, INPUT);
-
     loadSettings();
-
-    // REMOVED: "Initialize CAN" + initializeCAN()
 
     SERIALCONSOLE.println("Init BMS board numbers");
     bms.renumberBoardIDs();
-
-    lastUpdate = 0;
-
-    SERIALCONSOLE.println("BMS clear faults");
     bms.clearFaults();
-    SERIALCONSOLE.println("End of setup");
-    SERIALCONSOLE.println("Send ? for help, d for detailed updates, p for summary.");
-    delay(1000);
+
+    // ==================== YOUR PROVEN WORKING WIFI BLOCK ====================
+    SERIALCONSOLE.print("SSID: ");
+    SERIALCONSOLE.println(ssid);
+    SERIALCONSOLE.print("Password length: ");
+    SERIALCONSOLE.println(strlen(password));
+    SERIALCONSOLE.print("Password bytes (hex): ");
+    for (int i = 0; i < strlen(password); i++) {
+        SERIALCONSOLE.printf("%02X ", password[i]);
+    }
+    SERIALCONSOLE.println("\n");
+
+    SERIALCONSOLE.println("Scanning for networks...");
+    int n = WiFi.scanNetworks();
+    SERIALCONSOLE.printf("%d networks found\n", n);
+    for (int i = 0; i < n; i++) {
+        if (String(WiFi.SSID(i)) == ssid) SERIALCONSOLE.print(">>> ");
+        SERIALCONSOLE.printf("%s  RSSI:%d\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i));
+    }
+
+    SERIALCONSOLE.printf("\nConnecting to %s...\n", ssid);
+    WiFi.begin(ssid, password);
+
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 30000) {
+        delay(500);
+        SERIALCONSOLE.print(".");
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        SERIALCONSOLE.println("\n\nWiFi CONNECTED!");
+        SERIALCONSOLE.print("IP address: ");
+        SERIALCONSOLE.println(WiFi.localIP());
+    } else {
+        SERIALCONSOLE.println("\n\nWiFi FAILED!");
+        SERIALCONSOLE.printf("Status code: %d\n", WiFi.status());
+        while (1) delay(1000);
+    }
+
+    mqtt.setServer(mqtt_server, 1883);
+    mqtt.connect("TeslaBMS");
+
+    // Publish device status once (required by dbus-mqtt-devices)
+    mqtt.publish("device/teslabms/Status", "{\"clientId\":\"teslabms\",\"connected\":1,\"version\":\"1.0\",\"services\":{\"b1\":\"battery\"}}");
 }
 
-void loop()
-{
+void loop() {
     console.loop();
 
-    if (millis() > (lastUpdate + 1000))
-    {
+    if (millis() > (lastUpdate + 1000)) {
         lastUpdate = millis();
         bms.balanceCells();
         bms.getAllVoltTemp();
     }
 
-    // REMOVED: entire CAN receive block (CAN0.available / read / processCANMsg)
+    if (!mqtt.connected()) {
+        mqtt.connect("TeslaBMS");
+    }
+    mqtt.loop();
+
+      if (millis() - lastUpdate > 1000) {
+        lastUpdate = millis();
+
+        float avgCell = bms.getAvgCellVolt();
+        uint8_t soc = (avgCell >= 4.2f) ? 100 : (avgCell <= 3.0f) ? 0 : (uint8_t)((avgCell - 3.0f) / 1.2f * 100.0f);
+        float packV = bms.getPackVoltage();
+        float current = 0.0f;
+
+        char json[128];
+
+        // Exact JSON format the driver expects
+        sprintf(json, "{\"Dc\":{\"Voltage\":%.2f,\"Current\":%.2f,\"Power\":%.2f},\"Soc\":%d}", 
+                packV, current, packV * current, soc);
+
+        mqtt.publish("teslabms/battery", json);   // matches the topic in config.ini
+
+        SERIALCONSOLE.printf("Published JSON → SOC:%d%% V:%.2fV\n", soc, packV);
+    }
 }
