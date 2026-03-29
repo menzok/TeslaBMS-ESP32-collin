@@ -28,7 +28,7 @@ void setup()
     SERIALCONSOLE.begin(115200);
     SERIALCONSOLE.println("Tesla BMS ESP32-WROOM - CAN stripped");
 
-    // BMS UART on ESP32 (pins 4=RX, 2=TX - matches original wiring)
+    // BMS UART on ESP32 (pins 16=RX, 17=TX - matches original wiring)
     SERIAL.begin(BMS_BAUD, SERIAL_8N1, 16, 17);
 
     SERIALCONSOLE.println("Started serial interface to BMS.");
