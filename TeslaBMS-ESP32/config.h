@@ -34,7 +34,14 @@ extern HardwareSerial Serial2;
 
 #define MAX_MODULE_ADDR     0x3E
 
-#define EEPROM_VERSION      0x10    //update any time EEPROM struct below is changed.
+// Voltage above which a cell reading is considered invalid (hardware maximum)
+#define CELL_MAX_VALID_VOLT 4.5f
+// Voltage above which a cell reading is treated as an open-circuit/invalid reading
+#define CELL_OPEN_VOLT      60.0f
+// Temperature below which a sensor is considered disconnected
+#define TEMP_SENSOR_DISCONNECTED -70.0f
+
+#define EEPROM_VERSION      0x11    //update any time EEPROM struct below is changed.
 #define EEPROM_PAGE         0
 
 #define DIN1                55
@@ -56,10 +63,21 @@ typedef struct {
     uint32_t canSpeed;
     uint8_t batteryID;  //which battery ID should this board associate as on the CAN bus
     uint8_t logLevel;
-    float OverVSetpoint;
-    float UnderVSetpoint;
-    float OverTSetpoint;
-    float UnderTSetpoint;
-    float balanceVoltage;
-    float balanceHyst;
+    float OverVSetpoint;    // per-cell overvoltage trip threshold (V)
+    float UnderVSetpoint;   // per-cell undervoltage trip threshold (V)
+    float ChargeVsetpoint;  // per-cell target voltage during charging (V)
+    float DischVsetpoint;   // per-cell minimum voltage during discharge (V)
+    float ChargeHys;        // hysteresis below ChargeVsetpoint before re-enabling charge (V)
+    float DischHys;         // hysteresis above DischVsetpoint before re-enabling discharge (V)
+    float WarnOff;          // voltage offset below OverV or above UnderV to warn before tripping (V)
+    float CellGap;          // maximum allowed voltage gap between highest and lowest cell (V)
+    float IgnoreVolt;       // ignore cells below this voltage (dead-cell detection, V)
+    uint8_t IgnoreTemp;     // 0=use both sensors, 1=sensor1 only, 2=sensor2 only
+    float OverTSetpoint;    // over-temperature trip threshold (°C)
+    float UnderTSetpoint;   // under-temperature trip threshold (°C)
+    float balanceVoltage;   // cell voltage at which balancing activates (V)
+    float balanceHyst;      // how far voltage must drop below balanceVoltage to stop balancing (V)
+    int Scells;             // number of cells in series per module string
+    int Pstrings;           // number of parallel strings
+    uint16_t triptime;      // milliseconds a fault must persist before tripping (ms)
 } EEPROMSettings;

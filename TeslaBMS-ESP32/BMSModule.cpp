@@ -15,16 +15,32 @@ BMSModule::BMSModule()
         balanceState[i] = 0;
     }
     moduleVolt = 0.0f;
+    retmoduleVolt = 0.0f;
     temperatures[0] = 0.0f;
     temperatures[1] = 0.0f;
     lowestTemperature = 200.0f;
     highestTemperature = -100.0f;
     lowestModuleVolt = 200.0f;
     highestModuleVolt = 0.0f;
+    IgnoreCell = 0.0f;
+    sensor = 0;
+    scells = 6;
+    smiss = 0;
     exists = false;
     moduleAddress = 0;
     goodPackets = 0;
     badPackets = 0;
+}
+
+/*
+Clear this module's cell voltage and temperature readings back to zero.
+*/
+void BMSModule::clearmodule()
+{
+    for (int i = 0; i < 6; i++) cellVolt[i] = 0.0f;
+    moduleVolt = 0.0f;
+    temperatures[0] = 0.0f;
+    temperatures[1] = 0.0f;
 }
 
 /*
@@ -62,6 +78,20 @@ uint8_t BMSModule::getCOVCells()
 uint8_t BMSModule::getCUVCells()
 {
     return CUVFaults;
+}
+
+/*
+Stop balancing on this module immediately.
+*/
+void BMSModule::stopBalance()
+{
+    uint8_t buff[8];
+    uint8_t payload[4];
+    payload[0] = moduleAddress << 1;
+    payload[1] = REG_BAL_CTRL;
+    payload[2] = 0; //write zero to stop all cell balancing
+    BMSUtil::sendDataWithReply(payload, 3, true, buff, 4);
+    delay(2);
 }
 
 /*
@@ -126,15 +156,19 @@ bool BMSModule::readModuleValues()
         if (buff[0] == (moduleAddress << 1) && buff[1] == REG_GPAI && buff[2] == 0x12) //Also ensure this is actually the reply to our intended query
         {
             //payload is 2 bytes gpai, 2 bytes for each of 6 cell voltages, 2 bytes for each of two temperatures (18 bytes of data)
-            moduleVolt = (buff[3] * 256 + buff[4]) * 0.002034609f;
-            if (moduleVolt > highestModuleVolt) highestModuleVolt = moduleVolt;
-            if (moduleVolt < lowestModuleVolt) lowestModuleVolt = moduleVolt;            
+            retmoduleVolt = (buff[3] * 256 + buff[4]) * 0.0020346293922562f;
+            if (retmoduleVolt > highestModuleVolt) highestModuleVolt = retmoduleVolt;
+            if (retmoduleVolt < lowestModuleVolt) lowestModuleVolt = retmoduleVolt;
             for (int i = 0; i < 6; i++) 
             {
                 cellVolt[i] = (buff[5 + (i * 2)] * 256 + buff[6 + (i * 2)]) * 0.000381493f;
-                if (lowestCellVolt[i] > cellVolt[i]) lowestCellVolt[i] = cellVolt[i];
+                if (lowestCellVolt[i] > cellVolt[i] && cellVolt[i] > IgnoreCell) lowestCellVolt[i] = cellVolt[i];
                 if (highestCellVolt[i] < cellVolt[i]) highestCellVolt[i] = cellVolt[i];
             }
+
+            // Use summed cell voltages for moduleVolt (more accurate than reported module voltage)
+            moduleVolt = 0.0f;
+            for (int i = 0; i < 6; i++) moduleVolt += cellVolt[i];
 
             //Now using steinhart/hart equation for temperatures. We'll see if it is better than old code.
             tempTemp = (1.78f / ((buff[17] * 256 + buff[18] + 2) / 33046.0f) - 3.57f);
@@ -184,23 +218,55 @@ float BMSModule::getCellVoltage(int cell)
 float BMSModule::getLowCellV()
 {
     float lowVal = 10.0f;
-    for (int i = 0; i < 6; i++) if (cellVolt[i] < lowVal) lowVal = cellVolt[i];
+    for (int i = 0; i < 6; i++) if (cellVolt[i] < lowVal && cellVolt[i] > IgnoreCell) lowVal = cellVolt[i];
     return lowVal;
 }
 
 float BMSModule::getHighCellV()
 {
     float hiVal = 0.0f;
-    for (int i = 0; i < 6; i++) if (cellVolt[i] > hiVal) hiVal = cellVolt[i];
+    for (int i = 0; i < 6; i++) if (cellVolt[i] > hiVal && cellVolt[i] < CELL_MAX_VALID_VOLT) hiVal = cellVolt[i];
     return hiVal;
 }
 
 float BMSModule::getAverageV()
 {
+    int x = 0;
     float avgVal = 0.0f;
-    for (int i = 0; i < 6; i++) avgVal += cellVolt[i];
-    avgVal /= 6.0f;
+    for (int i = 0; i < 6; i++)
+    {
+        if (cellVolt[i] > IgnoreCell && cellVolt[i] < CELL_OPEN_VOLT)
+        {
+            x++;
+            avgVal += cellVolt[i];
+        }
+    }
+
+    // Debounce the active cell count so transient dropouts don't change scells immediately
+    if (scells != x)
+    {
+        if (smiss > 2)
+        {
+            scells = x;
+        }
+        else
+        {
+            smiss++;
+        }
+    }
+    else
+    {
+        scells = x;
+        smiss = 0;
+    }
+
+    if (x > 0) avgVal /= x;
     return avgVal;
+}
+
+int BMSModule::getscells()
+{
+    return scells;
 }
 
 float BMSModule::getHighestModuleVolt()
@@ -237,17 +303,26 @@ float BMSModule::getLowestTemp()
 
 float BMSModule::getLowTemp()
 {
-   return (temperatures[0] < temperatures[1]) ? temperatures[0] : temperatures[1]; 
+    if (sensor == 0)
+        return (temperatures[0] < temperatures[1]) ? temperatures[0] : temperatures[1];
+    else
+        return temperatures[sensor - 1];
 }
 
 float BMSModule::getHighTemp()
 {
-   return (temperatures[0] < temperatures[1]) ? temperatures[1] : temperatures[0];
+    if (sensor == 0)
+        return (temperatures[0] < temperatures[1]) ? temperatures[1] : temperatures[0];
+    else
+        return temperatures[sensor - 1];
 }
 
 float BMSModule::getAvgTemp()
 {
-    return (temperatures[0] + temperatures[1]) / 2.0f;
+    if (sensor == 0)
+        return (temperatures[0] + temperatures[1]) * 0.5f;
+    else
+        return temperatures[sensor - 1];
 }
 
 float BMSModule::getModuleVoltage()
@@ -281,6 +356,16 @@ bool BMSModule::isExisting()
 void BMSModule::setExists(bool ex)
 {
     exists = ex;
+}
+
+void BMSModule::settempsensor(int tempsensor)
+{
+    sensor = tempsensor;
+}
+
+void BMSModule::setIgnoreCell(float Ignore)
+{
+    IgnoreCell = Ignore;
 }
 
 void BMSModule::balanceCells()

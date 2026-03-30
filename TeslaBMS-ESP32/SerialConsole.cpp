@@ -32,6 +32,7 @@ template<class T> inline Print &operator <<(Print &obj, T arg) { obj.print(arg);
 
 extern EEPROMSettings settings;
 extern BMSModuleManager bms;
+extern void saveSettings();
 
 bool printPrettyDisplay;
 uint32_t prettyCounter;
@@ -83,21 +84,24 @@ void SerialConsole::printMenu() {
     Logger::console("   LOGLEVEL=%i - set log level (0=debug, 1=info, 2=warn, 3=error, 4=off)", Logger::getLogLevel());
     Logger::console("   CANSPEED=%i - set first CAN bus speed", settings.canSpeed);
     Logger::console("   BATTERYID=%i - Set battery ID for CAN protocol (1-14)", settings.batteryID);
+    Logger::console("   PSTRINGS=%i - Number of parallel strings", settings.Pstrings);
+    Logger::console("   SCELLS=%i   - Number of series cells per module string", settings.Scells);
 
     Logger::console("\nBATTERY MANAGEMENT CONTROLS\n");
-    Logger::console("   VOLTLIMHI=%f - High limit for cells in volts", settings.OverVSetpoint);
-    Logger::console("   VOLTLIMLO=%f - Low limit for cells in volts", settings.UnderVSetpoint);
-    Logger::console("   TEMPLIMHI=%f - High limit for cell temperature in degrees C", settings.OverTSetpoint);
-    Logger::console("   TEMPLIMLO=%f - Low limit for cell temperature in degrees C", settings.UnderTSetpoint);
-    Logger::console("   BALVOLT=%f - Voltage at which to begin cell balancing", settings.balanceVoltage);
-    Logger::console("   BALHYST=%f - How far voltage must dip before balancing is turned off", settings.balanceHyst);
-
-    float OverVSetpoint;
-    float UnderVSetpoint;
-    float OverTSetpoint;
-    float UnderTSetpoint;
-    float balanceVoltage;
-    float balanceHyst;
+    Logger::console("   VOLTLIMHI=%f  - Cell overvoltage trip (V)", settings.OverVSetpoint);
+    Logger::console("   VOLTLIMLO=%f  - Cell undervoltage trip (V)", settings.UnderVSetpoint);
+    Logger::console("   CHARGEVSP=%f  - Cell charge target voltage (V)", settings.ChargeVsetpoint);
+    Logger::console("   DISCHVSP=%f   - Cell discharge cutoff voltage (V)", settings.DischVsetpoint);
+    Logger::console("   CHARGEHYS=%f  - Charge hysteresis (V)", settings.ChargeHys);
+    Logger::console("   DISCHHYS=%f   - Discharge hysteresis (V)", settings.DischHys);
+    Logger::console("   WARNOFF=%f    - Warning offset below/above trip thresholds (V)", settings.WarnOff);
+    Logger::console("   CELLGAP=%f    - Max allowed voltage gap between cells (V)", settings.CellGap);
+    Logger::console("   IGNOREVOLT=%f - Ignore cells at or below this voltage (V)", settings.IgnoreVolt);
+    Logger::console("   TEMPLIMHI=%f  - Cell over-temperature trip (C)", settings.OverTSetpoint);
+    Logger::console("   TEMPLIMLO=%f  - Cell under-temperature trip (C)", settings.UnderTSetpoint);
+    Logger::console("   BALVOLT=%f    - Voltage at which to begin cell balancing (V)", settings.balanceVoltage);
+    Logger::console("   BALHYST=%f    - How far voltage must dip before balancing stops (V)", settings.balanceHyst);
+    Logger::console("   TRIPTIME=%u   - Fault persistence time before trip (ms)", settings.triptime);
 }
 
 /*	There is a help menu (press H or h or ?)
@@ -205,11 +209,26 @@ void SerialConsole::handleConfigCmd() {
     } else if (cmdString == String("BATTERYID")) {
         if (newValue > 0 && newValue < 15) {
             settings.batteryID = newValue;
-            bms.setBatteryID();
+            bms.setBatteryID(newValue);
             needEEPROMWrite = true;
             Logger::console("Battery ID set to: %i", newValue);
         }
         else Logger::console("Invalid battery ID. Please enter a value between 1 and 14");
+    } else if (cmdString == String("PSTRINGS")) {
+        if (newValue >= 1 && newValue <= 16) {
+            settings.Pstrings = newValue;
+            bms.setPstrings(newValue);
+            needEEPROMWrite = true;
+            Logger::console("Parallel strings set to: %i", newValue);
+        }
+        else Logger::console("Invalid value. Enter 1-16");
+    } else if (cmdString == String("SCELLS")) {
+        if (newValue >= 1 && newValue <= 6) {
+            settings.Scells = newValue;
+            needEEPROMWrite = true;
+            Logger::console("Series cells per module set to: %i", newValue);
+        }
+        else Logger::console("Invalid value. Enter 1-6");
     } else if (cmdString == String("VOLTLIMHI")) {
         if (newFloat >= 0.0f && newFloat <= 6.00f) {
             settings.OverVSetpoint = newFloat; 
@@ -224,6 +243,56 @@ void SerialConsole::handleConfigCmd() {
             Logger::console("Cell Voltage Lower Limit set to %f", settings.UnderVSetpoint);
         }
         else Logger::console("Invalid lower cell voltage limit. Please enter a value 0.0 to 6.0");
+    } else if (cmdString == String("CHARGEVSP")) {
+        if (newFloat >= 0.0f && newFloat <= 6.0f) {
+            settings.ChargeVsetpoint = newFloat;
+            needEEPROMWrite = true;
+            Logger::console("Charge voltage setpoint set to %f", settings.ChargeVsetpoint);
+        }
+        else Logger::console("Invalid value. Please enter 0.0 to 6.0");
+    } else if (cmdString == String("DISCHVSP")) {
+        if (newFloat >= 0.0f && newFloat <= 6.0f) {
+            settings.DischVsetpoint = newFloat;
+            needEEPROMWrite = true;
+            Logger::console("Discharge voltage setpoint set to %f", settings.DischVsetpoint);
+        }
+        else Logger::console("Invalid value. Please enter 0.0 to 6.0");
+    } else if (cmdString == String("CHARGEHYS")) {
+        if (newFloat >= 0.0f && newFloat <= 1.0f) {
+            settings.ChargeHys = newFloat;
+            needEEPROMWrite = true;
+            Logger::console("Charge hysteresis set to %f", settings.ChargeHys);
+        }
+        else Logger::console("Invalid value. Please enter 0.0 to 1.0");
+    } else if (cmdString == String("DISCHHYS")) {
+        if (newFloat >= 0.0f && newFloat <= 1.0f) {
+            settings.DischHys = newFloat;
+            needEEPROMWrite = true;
+            Logger::console("Discharge hysteresis set to %f", settings.DischHys);
+        }
+        else Logger::console("Invalid value. Please enter 0.0 to 1.0");
+    } else if (cmdString == String("WARNOFF")) {
+        if (newFloat >= 0.0f && newFloat <= 1.0f) {
+            settings.WarnOff = newFloat;
+            needEEPROMWrite = true;
+            Logger::console("Warning offset set to %f", settings.WarnOff);
+        }
+        else Logger::console("Invalid value. Please enter 0.0 to 1.0");
+    } else if (cmdString == String("CELLGAP")) {
+        if (newFloat >= 0.0f && newFloat <= 1.0f) {
+            settings.CellGap = newFloat;
+            needEEPROMWrite = true;
+            Logger::console("Cell gap limit set to %f", settings.CellGap);
+        }
+        else Logger::console("Invalid value. Please enter 0.0 to 1.0");
+    } else if (cmdString == String("IGNOREVOLT")) {
+        if (newFloat >= 0.0f && newFloat <= 3.0f) {
+            settings.IgnoreVolt = newFloat;
+            bms.setSensors(settings.IgnoreTemp, newFloat);
+            needEEPROMWrite = true;
+            Logger::console("Ignore cell voltage threshold set to %f", settings.IgnoreVolt);
+        }
+        else Logger::console("Invalid value. Please enter 0.0 to 3.0");
     } else if (cmdString == String("BALVOLT")) {
         if (newFloat >= 0.0f && newFloat <= 6.0f) {
             settings.balanceVoltage = newFloat;
@@ -251,13 +320,20 @@ void SerialConsole::handleConfigCmd() {
             needEEPROMWrite = true;
             Logger::console("Module Temperature Lower Limit set to: %f", settings.UnderTSetpoint);
         }
-        else Logger::console("Invalid temperature lower limit please enter a value between -20.0 and 120.0");        
+        else Logger::console("Invalid temperature lower limit please enter a value between -20.0 and 120.0");
+    } else if (cmdString == String("TRIPTIME")) {
+        if (newValue >= 0 && newValue <= 60000) {
+            settings.triptime = (uint16_t)newValue;
+            needEEPROMWrite = true;
+            Logger::console("Fault trip time set to: %u ms", settings.triptime);
+        }
+        else Logger::console("Invalid value. Please enter 0 to 60000 ms");
     } else {
         Logger::console("Unknown command");
     }
     if (needEEPROMWrite)
     {
-        //EEPROM.write(EEPROM_PAGE, settings);
+        saveSettings();
     }
 }
 

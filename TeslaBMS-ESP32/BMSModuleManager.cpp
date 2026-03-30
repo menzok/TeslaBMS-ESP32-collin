@@ -15,7 +15,43 @@ BMSModuleManager::BMSModuleManager()
     highestPackVolt = 0.0f;
     lowestPackTemp = 200.0f;
     highestPackTemp = -100.0f;
+    highTemp = -999.0f;
+    lowTemp = 999.0f;
+    LowCellVolt = 5.0f;
+    HighCellVolt = 0.0f;
+    packVolt = 0.0f;
+    batteryID = 0;
+    Pstring = 1;
+    spack = 0;
+    CellsBalancing = 0;
+    numFoundModules = 0;
     isFaulted = false;
+}
+
+void BMSModuleManager::clearmodules()
+{
+    for (int y = 1; y < 63; y++)
+    {
+        if (modules[y].isExisting()) modules[y].clearmodule();
+    }
+}
+
+void BMSModuleManager::StopBalancing()
+{
+    for (int x = 1; x <= MAX_MODULE_ADDR; x++)
+    {
+        if (modules[x].isExisting()) modules[x].stopBalance();
+    }
+}
+
+int BMSModuleManager::seriescells()
+{
+    spack = 0;
+    for (int y = 1; y < 63; y++)
+    {
+        if (modules[y].isExisting()) spack += modules[y].getscells();
+    }
+    return spack;
 }
 
 void BMSModuleManager::balanceCells()
@@ -223,6 +259,18 @@ void BMSModuleManager::wakeBoards()
 void BMSModuleManager::getAllVoltTemp()
 {
     packVolt = 0.0f;
+
+    // Stop balancing on all modules before taking readings (prevents measurement errors)
+    for (int x = 1; x <= MAX_MODULE_ADDR; x++)
+    {
+        if (modules[x].isExisting()) modules[x].stopBalance();
+    }
+
+    // Give balancing resistors time to discharge after stopping; small packs need more
+    // time because each module takes longer to settle proportionally.
+    if (numFoundModules < 8) delay(200);
+    else delay(50);
+
     for (int x = 1; x <= MAX_MODULE_ADDR; x++)
     {
         if (modules[x].isExisting()) 
@@ -234,13 +282,34 @@ void BMSModuleManager::getAllVoltTemp()
             Logger::debug("Lowest Cell V: %f     Highest Cell V: %f", modules[x].getLowCellV(), modules[x].getHighCellV());
             Logger::debug("Temp1: %f       Temp2: %f", modules[x].getTemperature(0), modules[x].getTemperature(1));
             packVolt += modules[x].getModuleVoltage();
-            if (modules[x].getLowTemp() < lowestPackTemp) lowestPackTemp = modules[x].getLowTemp();
-            if (modules[x].getHighTemp() > highestPackTemp) highestPackTemp = modules[x].getHighTemp();            
+            // Only update pack temperature extremes when sensors are connected (above TEMP_SENSOR_DISCONNECTED)
+            if (modules[x].getLowTemp() < lowestPackTemp && modules[x].getLowTemp() > TEMP_SENSOR_DISCONNECTED)
+                lowestPackTemp = modules[x].getLowTemp();
+            if (modules[x].getHighTemp() > highestPackTemp && modules[x].getHighTemp() > TEMP_SENSOR_DISCONNECTED)
+                highestPackTemp = modules[x].getHighTemp();
         }
     }
 
+    // Divide by number of parallel strings for true string voltage
+    if (Pstring > 1) packVolt /= (float)Pstring;
+
     if (packVolt > highestPackVolt) highestPackVolt = packVolt;
     if (packVolt < lowestPackVolt) lowestPackVolt = packVolt;
+
+    // Update pack-wide highest and lowest cell voltages
+    HighCellVolt = 0.0f;
+    for (int x = 1; x <= MAX_MODULE_ADDR; x++)
+    {
+        if (modules[x].isExisting() && modules[x].getHighCellV() > HighCellVolt)
+            HighCellVolt = modules[x].getHighCellV();
+    }
+    LowCellVolt = 5.0f;
+    for (int x = 1; x <= MAX_MODULE_ADDR; x++)
+    {
+        if (modules[x].isExisting() && modules[x].getLowCellV() < LowCellVolt)
+            LowCellVolt = modules[x].getLowCellV();
+    }
+
 //You can uncomment this code if you do have the module fault chain attached. Change the pin number to where it is attached
 /*
     if (digitalRead(13) == LOW) {
@@ -260,16 +329,78 @@ float BMSModuleManager::getPackVoltage()
     return packVolt;
 }
 
-float BMSModuleManager::getAvgTemperature()
+float BMSModuleManager::getHighVoltage()
 {
-    float avg = 0.0f;    
+    return highestPackVolt;
+}
+
+float BMSModuleManager::getLowVoltage()
+{
+    return lowestPackVolt;
+}
+
+float BMSModuleManager::getHighCellVolt()
+{
+    return HighCellVolt;
+}
+
+float BMSModuleManager::getLowCellVolt()
+{
+    return LowCellVolt;
+}
+
+int BMSModuleManager::getNumModules()
+{
+    return numFoundModules;
+}
+
+int BMSModuleManager::getBalancing()
+{
+    int count = 0;
     for (int x = 1; x <= MAX_MODULE_ADDR; x++)
     {
-        if (modules[x].isExisting()) avg += modules[x].getAvgTemp();
+        if (modules[x].isExisting())
+        {
+            for (int i = 0; i < 6; i++)
+                if (modules[x].getBalancingState(i) == 1) count++;
+        }
     }
-    avg = avg / (float)numFoundModules;
+    return count;
+}
+
+float BMSModuleManager::getAvgTemperature()
+{
+    float avg = 0.0f;
+    highTemp = -999.0f;
+    lowTemp = 999.0f;
+    int validModules = 0;
+    for (int x = 1; x <= MAX_MODULE_ADDR; x++)
+    {
+        if (modules[x].isExisting())
+        {
+            // Skip modules where sensors are not connected (return ~-273°C or below TEMP_SENSOR_DISCONNECTED)
+            if (modules[x].getAvgTemp() > TEMP_SENSOR_DISCONNECTED)
+            {
+                avg += modules[x].getAvgTemp();
+                validModules++;
+                if (modules[x].getHighTemp() > highTemp) highTemp = modules[x].getHighTemp();
+                if (modules[x].getLowTemp() < lowTemp) lowTemp = modules[x].getLowTemp();
+            }
+        }
+    }
+    if (validModules > 0) avg /= (float)validModules;
 
     return avg;
+}
+
+float BMSModuleManager::getHighTemperature()
+{
+    return highTemp;
+}
+
+float BMSModuleManager::getLowTemperature()
+{
+    return lowTemp;
 }
 
 float BMSModuleManager::getAvgCellVolt()
@@ -297,8 +428,8 @@ void BMSModuleManager::printPackSummary()
     Logger::console("                                     Pack Status:");
     if (isFaulted) Logger::console("                                       FAULTED!");
     else Logger::console("                                   All systems go!");
-    Logger::console("Modules: %i    Voltage: %fV   Avg Cell Voltage: %fV     Avg Temp: %fC ", numFoundModules, 
-                    getPackVoltage(),getAvgCellVolt(), getAvgTemperature());
+    Logger::console("Modules: %i    Voltage: %fV   Avg Cell: %fV   Low Cell: %fV   High Cell: %fV   Avg Temp: %fC ", numFoundModules, 
+                    getPackVoltage(), getAvgCellVolt(), LowCellVolt, HighCellVolt, getAvgTemperature());
     Logger::console("");
     for (int y = 1; y < 63; y++)
     {
@@ -426,8 +557,10 @@ void BMSModuleManager::printPackDetails()
     Logger::console("                                         Pack Status:");
     if (isFaulted) Logger::console("                                           FAULTED!");
     else Logger::console("                                      All systems go!");
-    Logger::console("Modules: %i    Voltage: %fV   Avg Cell Voltage: %fV     Avg Temp: %fC ", numFoundModules, 
-                    getPackVoltage(),getAvgCellVolt(), getAvgTemperature());
+    Logger::console("Modules: %i   Cells: %i   Strings: %i   Voltage: %fV   Avg: %fV   Low: %fV   High: %fV   Delta: %.0fmV   Avg Temp: %fC",
+                    numFoundModules, seriescells(), Pstring,
+                    getPackVoltage(), getAvgCellVolt(), LowCellVolt, HighCellVolt,
+                    (HighCellVolt - LowCellVolt) * 1000.0f, getAvgTemperature());
     Logger::console("");
     for (int y = 1; y < 63; y++)
     {
@@ -466,15 +599,29 @@ void BMSModuleManager::printPackDetails()
 
 //The SerialConsole actually sets the battery ID to a specific value. We just have to set up the CAN filter here to
 //match.
-void BMSModuleManager::setBatteryID()
+void BMSModuleManager::setBatteryID(int id)
 {
-    // CAN functionality has been removed.
-    // We still store the batteryID so SerialConsole commands work.
-    Logger::console("Battery ID set to %d (CAN output disabled)", settings.batteryID);
-
-    // Optional: You can add a small check here if you want
-    if (settings.batteryID > 15) {
+    batteryID = id;
+    Logger::console("Battery ID set to %d (CAN output disabled)", batteryID);
+    if (batteryID > 15) {
         Logger::console("Warning: Battery ID should normally be 0-15");
-        settings.batteryID = 15;
+        batteryID = 15;
+    }
+}
+
+void BMSModuleManager::setPstrings(int Pstrings)
+{
+    Pstring = (Pstrings > 0) ? Pstrings : 1;
+}
+
+void BMSModuleManager::setSensors(int sensor, float Ignore)
+{
+    for (int x = 1; x <= MAX_MODULE_ADDR; x++)
+    {
+        if (modules[x].isExisting())
+        {
+            modules[x].settempsensor(sensor);
+            modules[x].setIgnoreCell(Ignore);
+        }
     }
 }
