@@ -346,6 +346,16 @@ float BMSModuleManager::getLowVoltage()
     return lowestPackVolt;
 }
 
+float BMSModuleManager::getHighPackTemp()
+{
+    return highestPackTemp;
+}
+
+float BMSModuleManager::getLowPackTemp()
+{
+    return lowestPackTemp;
+}
+
 float BMSModuleManager::getHighCellVolt()
 {
     return HighCellVolt;
@@ -744,15 +754,31 @@ void BMSModuleManager::saveSOCToEEPROM()
 // Executes all BMS work in a single, ordered pass so that every
 // downstream consumer (MQTT, SafetyController, SerialConsole) always
 // reads data that was produced in the same tick.
-// Order: balanceCells → getAllVoltTemp → updateSOC → safety.update()
+//
+// Order:
+//   1. getAllVoltTemp()  – stops active balancing, waits for resistors
+//                         to settle, then reads fresh voltages and temps.
+//   2. getAvgTemperature() – refreshes highTemp/lowTemp stats used by
+//                         SafetyController.
+//   3. balanceCells()   – conditional: only runs when highest cell is at
+//                         or above balanceVoltage. Uses the fresh voltage
+//                         data just read so cells balance for ~1 second
+//                         until the next getAllVoltTemp() stop-and-read.
+//   4. updateSOC()
+//   5. SafetyController::update()
 // =====================================================================
 void BMSModuleManager::update()
 {
-    balanceCells();
     getAllVoltTemp();
-    // Explicitly refresh high/low temperature stats so that
-    // getHighTemperature() and getLowTemperature() return current values.
     getAvgTemperature();
+
+    // Only activate balancing when the pack is near full charge.
+    // getAllVoltTemp() already stops all balance resistors before reading,
+    // so balanceCells() here re-enables them on cells that need it.
+    if (HighCellVolt >= settings.balanceVoltage) {
+        balanceCells();
+    }
+
     updateSOC();
     if (safetyController) {
         safetyController->update();

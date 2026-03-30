@@ -440,3 +440,57 @@ void SerialConsole::handleShortCmd() {
     }
 }
 
+/*
+    if (SERIALCONSOLE.available()) 
+    {
+        char y = SERIALCONSOLE.read();
+        switch (y)
+        {
+        case '1': //ascii 1
+            renumberBoardIDs();  // force renumber and read out
+            break;
+        case '2': //ascii 2
+            SERIALCONSOLE.println();
+            findBoards();
+            break;
+        case '3': //activate cell balance for 5 seconds 
+            SERIALCONSOLE.println();
+            SERIALCONSOLE.println("Balancing");
+            cellBalance();
+            break;
+      case '4': //clear all faults on all boards, required after Reset or FPO (first power on)
+       SERIALCONSOLE.println();
+       SERIALCONSOLE.println("Clearing Faults");
+       clearFaults();
+      break;
+
+      case '5': //read out the status of first board
+       SERIALCONSOLE.println();
+       SERIALCONSOLE.println("Reading status");
+       readStatus(1);
+      break;
+
+      case '6': //Read out the limit setpoints of first board
+       SERIALCONSOLE.println();
+       SERIALCONSOLE.println("Reading Setpoints");
+       readSetpoint(1);
+       SERIALCONSOLE.println(OVolt);
+       SERIALCONSOLE.println(UVolt);
+       SERIALCONSOLE.println(Tset);
+      break; 
+
+      case '0': //Send all boards into Sleep state
+       Serial.println();
+       Serial.println("Sleep Mode");
+       sleepBoards();
+      break;
+
+      case '9'://Pull all boards out of Sleep state
+       Serial.println();
+       Serial.println("Wake Boards");
+       wakeBoards();
+      break;
+        }
+    }
+ */
+

@@ -11,8 +11,8 @@ class BMSModuleManager
 public:
     BMSModuleManager();
     int seriescells();
-    void clearmodules();    // UNUSED: never called externally — candidate for removal
-    void StopBalancing();   // UNUSED: never called externally — candidate for removal
+    void clearmodules();
+    void StopBalancing();
     void balanceCells();
     void setupBoards();
     void findBoards();
@@ -31,8 +31,10 @@ public:
     float getAvgCellVolt();
     float getLowCellVolt();
     float getHighCellVolt();
-    float getHighVoltage();  // UNUSED: never called — candidate for removal
-    float getLowVoltage();   // UNUSED: never called — candidate for removal
+    float getHighVoltage();    // Session-high pack voltage (all-time high since boot)
+    float getLowVoltage();     // Session-low pack voltage (all-time low since boot)
+    float getHighPackTemp();   // Session-high pack temperature (all-time high since boot)
+    float getLowPackTemp();    // Session-low pack temperature (all-time low since boot)
     int getBalancing();
     int getNumModules();
     void printPackSummary();
@@ -48,7 +50,9 @@ public:
 
     // --- Master updater ---
     // Call once per second from loop(). Executes in order:
-    //   balanceCells → getAllVoltTemp → getAvgTemperature → updateSOC → SafetyController::update()
+    //   getAllVoltTemp (stops balance, reads fresh data) →
+    //   getAvgTemperature → conditional balanceCells (only when high cell ≥ balanceVoltage) →
+    //   updateSOC → SafetyController::update()
     void update();
 
     // Provide the SafetyController instance before the first update() call.
@@ -59,12 +63,10 @@ private:
     int Pstring;
     float LowCellVolt;
     float HighCellVolt;
-    // UNUSED: tracked session extremes but no getter is ever called — candidate for removal
-    float lowestPackVolt;
-    float highestPackVolt;
-    // UNUSED: tracked session extremes but no getter is ever called — candidate for removal
-    float lowestPackTemp;
-    float highestPackTemp;
+    float lowestPackVolt;   // Session-low pack voltage (all-time low since boot)
+    float highestPackVolt;  // Session-high pack voltage (all-time high since boot)
+    float lowestPackTemp;   // Session-low pack temperature (all-time low since boot)
+    float highestPackTemp;  // Session-high pack temperature (all-time high since boot)
     float highTemp;
     float lowTemp;
     BMSModule modules[MAX_MODULE_ADDR + 1];
