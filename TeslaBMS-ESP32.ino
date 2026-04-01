@@ -32,12 +32,8 @@ void loadSettings() {
 void setup() {
     delay(2000);
     pinMode(FAULT_CHAIN_PIN, INPUT); //fault chain monitoring pin
-
-
-    SERIALCONSOLE.begin(115200);
-    SERIALCONSOLE.println("\n=== TeslaBMS MQTT for dbus-mqtt-devices ===");
-
-    SERIAL.begin(BMS_BAUD, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN);
+	SERIALCONSOLE.begin(115200);  // open USB serial for console output
+	SERIAL.begin(BMS_BAUD, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN); // Open the hardware serial port for talking to the BMS modules
 	
     loadSettings();
 
