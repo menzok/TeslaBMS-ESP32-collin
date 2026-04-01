@@ -1,6 +1,10 @@
 #include <Arduino.h>
 #include "Logger.h"
 
+/// <summary>
+/// Generates comms packets, and sends and recieves.  
+/// </summary>
+
 class BMSUtil {    
 public:
     

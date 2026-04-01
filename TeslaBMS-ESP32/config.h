@@ -8,10 +8,8 @@ extern HardwareSerial Serial2;
 #define SERIALCONSOLE   Serial
 
 //Define this to be the serial port the Tesla BMS modules are connected to.
-//On the Due you need to use a USART port (Serial1, Serial2, Serial3) and update the call to serialSpecialInit if not Serial1
 #define SERIAL  Serial2
 
-#define REG_DEV_STATUS      0
 #define REG_GPAI            1
 #define REG_VCELL1          3
 #define REG_VCELL2          5
@@ -35,26 +33,11 @@ extern HardwareSerial Serial2;
 #define MAX_MODULE_ADDR     0x3E
 
 #define EEPROM_VERSION      0x10    //update any time EEPROM struct below is changed.
-#define EEPROM_PAGE         0
 
-#define DIN1                55
-#define DIN2                54
-#define DIN3                57
-#define DIN4                56
-#define DOUT4_H             2
-#define DOUT4_L             3
-#define DOUT3_H             4
-#define DOUT3_L             5
-#define DOUT2_H             6
-#define DOUT2_L             7
-#define DOUT1_H             8
-#define DOUT1_L             9
 
 typedef struct {
     uint8_t version;
     uint8_t checksum;
-    uint32_t canSpeed;
-    uint8_t batteryID;  //which battery ID should this board associate as on the CAN bus
     uint8_t logLevel;
     float OverVSetpoint;
     float UnderVSetpoint;

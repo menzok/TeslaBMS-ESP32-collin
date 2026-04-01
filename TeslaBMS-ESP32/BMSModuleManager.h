@@ -16,11 +16,10 @@ public:
     void wakeBoards();
     void getAllVoltTemp();
    // void readSetpoints();
-   void setBatteryID();
+
     float getPackVoltage();
     float getAvgTemperature();
     float getAvgCellVolt();
-   // void processCANMsg(CAN_FRAME &frame);
     void printPackSummary();
     void printPackDetails();
 
@@ -34,8 +33,5 @@ private:
     int numFoundModules;                    // The number of modules that seem to exist
     bool isFaulted;
     
-    void sendBatterySummary();
-    void sendModuleSummary(int module);
-    void sendCellDetails(int module, int cell);
     
 };

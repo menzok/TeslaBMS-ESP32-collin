@@ -464,17 +464,4 @@ void BMSModuleManager::printPackDetails()
     }
 }
 
-//The SerialConsole actually sets the battery ID to a specific value. We just have to set up the CAN filter here to
-//match.
-void BMSModuleManager::setBatteryID()
-{
-    // CAN functionality has been removed.
-    // We still store the batteryID so SerialConsole commands work.
-    Logger::console("Battery ID set to %d (CAN output disabled)", settings.batteryID);
 
-    // Optional: You can add a small check here if you want
-    if (settings.batteryID > 15) {
-        Logger::console("Warning: Battery ID should normally be 0-15");
-        settings.batteryID = 15;
-    }
-}

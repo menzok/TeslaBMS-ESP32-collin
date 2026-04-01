@@ -118,6 +118,6 @@ void loop() {
 
         mqtt.publish("teslabms/battery", json);   // matches the topic in config.ini
 
-        SERIALCONSOLE.printf("Published JSON → SOC:%d%% V:%.2fV\n", soc, packV);
+       // SERIALCONSOLE.printf("Published JSON → SOC:%d%% V:%.2fV\n", soc, packV);
     }
 }
