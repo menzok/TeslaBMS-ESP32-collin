@@ -241,9 +241,10 @@ void BMSModuleManager::getAllVoltTemp()
 
     if (packVolt > highestPackVolt) highestPackVolt = packVolt;
     if (packVolt < lowestPackVolt) lowestPackVolt = packVolt;
-//You can uncomment this code if you do have the module fault chain attached. Change the pin number to where it is attached
-/*
-    if (digitalRead(13) == LOW) {
+    
+    if ENABLE_FAULT_CHAIN
+    // Fault-chain monitoring (active-low signal from the Tesla modules)
+    if (digitalRead(FAULT_CHAIN_PIN) == LOW) {
         if (!isFaulted) Logger::error("One or more BMS modules have entered the fault state!");
         isFaulted = true;
     }
@@ -252,7 +253,7 @@ void BMSModuleManager::getAllVoltTemp()
         if (isFaulted) Logger::info("All modules have exited a faulted state");
         isFaulted = false;
     }
-*/
+
 }
 
 float BMSModuleManager::getPackVoltage()

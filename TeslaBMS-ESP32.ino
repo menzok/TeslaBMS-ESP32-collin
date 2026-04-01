@@ -14,7 +14,7 @@ const char* password = "gdr543l7";
 const char* mqtt_server = "192.168.1.213";   // ← your Pi IP
 // =======================================================
 
-#define BMS_BAUD  612500
+
 
 BMSModuleManager bms;
 EEPROMSettings settings;
@@ -31,12 +31,14 @@ void loadSettings() {
 
 void setup() {
     delay(2000);
+    pinMode(FAULT_CHAIN_PIN, INPUT); //fault chain monitoring pin
+
+
     SERIALCONSOLE.begin(115200);
     SERIALCONSOLE.println("\n=== TeslaBMS MQTT for dbus-mqtt-devices ===");
 
-    SERIAL.begin(BMS_BAUD, SERIAL_8N1, 16, 17);
-
-    pinMode(13, INPUT);
+    SERIAL.begin(BMS_BAUD, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN);
+	
     loadSettings();
 
     SERIALCONSOLE.println("Init BMS board numbers");

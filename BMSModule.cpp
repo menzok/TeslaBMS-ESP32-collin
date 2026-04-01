@@ -1,3 +1,10 @@
+// Serves as the encapsulation of the BMS module, handling all communication and data storage for each individual module in the system. 
+// This is where the majority of the work happens in terms of talking to the modules and getting data out of them.
+// Operates as a single Read, then makes data avail by various functions.
+
+
+
+
 #include "config.h"
 #include "BMSModule.h"
 #include "BMSUtil.h"
@@ -5,7 +12,7 @@
 
 extern EEPROMSettings settings;
 
-BMSModule::BMSModule()
+BMSModule::BMSModule()      // Constructor for modules init to 0.
 {
     for (int i = 0; i < 6; i++)
     {
