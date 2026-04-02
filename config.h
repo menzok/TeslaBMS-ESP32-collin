@@ -1,3 +1,6 @@
+/* Compile level configuration settings, for editiable while running see EEPROMSettings*/
+
+
 #pragma once
 
 #include <Arduino.h>
