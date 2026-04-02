@@ -37,15 +37,4 @@ void loop() {
         bms.getAllVoltTemp();
     }
 
-      if (millis() - lastUpdate > 1000) {
-        lastUpdate = millis();
-
-        float avgCell = bms.getAvgCellVolt();
-        uint8_t soc = (avgCell >= 4.2f) ? 100 : (avgCell <= 3.0f) ? 0 : (uint8_t)((avgCell - 3.0f) / 1.2f * 100.0f);
-        float packV = bms.getPackVoltage();
-        float current = 0.0f;
-
-        char json[128];
-
-    }
 }
