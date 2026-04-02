@@ -1,5 +1,5 @@
 ﻿#include "Logger.h"
-#include "SerialConsole.h"
+#include "Menu.h"
 #include "BMSModuleManager.h"
 #include "EEPROMSettings.h"
 #include <WiFi.h>
@@ -17,7 +17,7 @@ const char* mqtt_server = "192.168.1.213";   // ← your Pi IP
 
 
 BMSModuleManager bms;
-SerialConsole console;
+Menu menu;
 uint32_t lastUpdate = 0;
 
 
@@ -28,7 +28,8 @@ void setup() {
 	SERIALCONSOLE.begin(115200);  // open USB serial for console output
 	SERIAL.begin(BMS_BAUD, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN); // Open the hardware serial port for talking to the BMS modules
 	
-	EEPROMSettings::load(); 
+	EEPROMSettings::load();
+    menu.begin();
 
     SERIALCONSOLE.println("Finding connected boards, RUN Board renumbering on pack change");
 	bms.findBoards();
@@ -79,7 +80,7 @@ void setup() {
 }
 
 void loop() {
-    console.loop();
+    menu.loop();
 
     if (millis() > (lastUpdate + 1000)) {
         lastUpdate = millis();

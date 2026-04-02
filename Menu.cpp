@@ -51,6 +51,9 @@ void Menu::begin() {
 }
 
 void Menu::loop() {
+    while (SERIALCONSOLE.available()) {
+        handleInput((char)SERIALCONSOLE.read());
+    }
     if (!isMenuOpen && printPrettyDisplay && (millis() > (prettyCounter + 3000))) {
         prettyCounter = millis();
         if (whichDisplay == 0) bms.printPackSummary();
@@ -61,6 +64,23 @@ void Menu::loop() {
 void Menu::handleInput(char c) {
     if (c == '\n' || c == '\r') {
         cmdBuffer[ptrBuffer] = 0; // null terminate
+
+        // 'm', 'M', or "menu" returns to root from any state except WAITING_FOR_INPUT
+        if (currentState != WAITING_FOR_INPUT) {
+            bool isM    = (ptrBuffer == 1 && (cmdBuffer[0] == 'm' || cmdBuffer[0] == 'M'));
+            bool isMenu = (ptrBuffer == 4 &&
+                           (cmdBuffer[0] == 'm' || cmdBuffer[0] == 'M') &&
+                           (cmdBuffer[1] == 'e' || cmdBuffer[1] == 'E') &&
+                           (cmdBuffer[2] == 'n' || cmdBuffer[2] == 'N') &&
+                           (cmdBuffer[3] == 'u' || cmdBuffer[3] == 'U'));
+            if (isM || isMenu) {
+                currentState = ROOT_MENU;
+                isMenuOpen = true;
+                printRootMenu();
+                ptrBuffer = 0;
+                return;
+            }
+        }
 
         if (currentState == WAITING_FOR_INPUT) {
             handleWaitingForInput();

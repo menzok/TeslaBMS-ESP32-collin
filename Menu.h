@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "config.h"
 #include "Logger.h"
 #include "EEPROMSettings.h"
 
