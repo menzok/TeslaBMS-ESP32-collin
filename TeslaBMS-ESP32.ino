@@ -30,9 +30,8 @@ void setup() {
 	
 	EEPROMSettings::load(); 
 
-    SERIALCONSOLE.println("Init BMS board numbers");
-    bms.renumberBoardIDs();
-    bms.clearFaults();
+    SERIALCONSOLE.println("Finding connected boards, RUN Board renumbering on pack change");
+	bms.findBoards();
 
     // ==================== YOUR PROVEN WORKING WIFI BLOCK ====================
     SERIALCONSOLE.print("SSID: ");

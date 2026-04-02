@@ -91,14 +91,6 @@ void SerialConsole::printMenu() {
     Logger::console("   BALHYST=%f - How far voltage must dip before balancing is turned off", eepromdata.balanceHyst);
 
 
-    /*duplicate definitions?
-    float OverVSetpoint;
-    float UnderVSetpoint;
-    float OverTSetpoint;
-    float UnderTSetpoint;
-    float balanceVoltage;
-    float balanceHyst;
-*/
 }
 
 /*	There is a help menu (press H or h or ?)
