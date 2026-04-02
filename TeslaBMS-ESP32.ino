@@ -1,5 +1,5 @@
 ﻿#include "Logger.h"
-#include "SerialConsole.h"
+#include "SerialConsole.h"  // TODO: replace with Menu.h when Menu is ready
 #include "BMSModuleManager.h"
 #include "EEPROMSettings.h"
 #include <WiFi.h>
@@ -17,7 +17,7 @@ const char* mqtt_server = "192.168.1.213";   // ← your Pi IP
 
 
 BMSModuleManager bms;
-SerialConsole console;
+SerialConsole console;  // TODO: replace with:  Menu menu;
 uint32_t lastUpdate = 0;
 
 

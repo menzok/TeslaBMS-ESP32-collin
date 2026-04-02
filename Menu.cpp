@@ -39,7 +39,7 @@ Menu::Menu() {
     printPrettyDisplay = false;
     prettyCounter = 0;
     whichDisplay = 0;
-    pendingConfig = 0;
+    pendingEdit = NO_EDIT;
     ptrBuffer = 0;
 }
 
@@ -51,6 +51,9 @@ void Menu::begin() {
 }
 
 void Menu::loop() {
+    while (SERIALCONSOLE.available()) {
+        handleInput((char)SERIALCONSOLE.read());
+    }
     if (!isMenuOpen && printPrettyDisplay && (millis() > (prettyCounter + 3000))) {
         prettyCounter = millis();
         if (whichDisplay == 0) bms.printPackSummary();
@@ -61,6 +64,23 @@ void Menu::loop() {
 void Menu::handleInput(char c) {
     if (c == '\n' || c == '\r') {
         cmdBuffer[ptrBuffer] = 0; // null terminate
+
+        // 'm', 'M', or "menu" returns to root from any state except WAITING_FOR_INPUT
+        if (currentState != WAITING_FOR_INPUT) {
+            bool isM    = (ptrBuffer == 1 && (cmdBuffer[0] == 'm' || cmdBuffer[0] == 'M'));
+            bool isMenu = (ptrBuffer == 4 &&
+                           (cmdBuffer[0] == 'm' || cmdBuffer[0] == 'M') &&
+                           (cmdBuffer[1] == 'e' || cmdBuffer[1] == 'E') &&
+                           (cmdBuffer[2] == 'n' || cmdBuffer[2] == 'N') &&
+                           (cmdBuffer[3] == 'u' || cmdBuffer[3] == 'U'));
+            if (isM || isMenu) {
+                currentState = ROOT_MENU;
+                isMenuOpen = true;
+                printRootMenu();
+                ptrBuffer = 0;
+                return;
+            }
+        }
 
         if (currentState == WAITING_FOR_INPUT) {
             handleWaitingForInput();
@@ -169,32 +189,32 @@ void Menu::handleConfigCommand(char c) {
     switch (c) {
     case '1':
         Logger::console("Current: %.3f  Enter new High Voltage Limit (0.0-6.0 V, blank to keep):", eepromdata.OverVSetpoint);
-        pendingConfig = 1;
+        pendingEdit = EDIT_OVER_VOLTAGE;
         currentState = WAITING_FOR_INPUT;
         break;
     case '2':
         Logger::console("Current: %.3f  Enter new Low Voltage Limit (0.0-6.0 V, blank to keep):", eepromdata.UnderVSetpoint);
-        pendingConfig = 2;
+        pendingEdit = EDIT_UNDER_VOLTAGE;
         currentState = WAITING_FOR_INPUT;
         break;
     case '3':
         Logger::console("Current: %.1f  Enter new High Temp Limit (0.0-100.0 C, blank to keep):", eepromdata.OverTSetpoint);
-        pendingConfig = 3;
+        pendingEdit = EDIT_OVER_TEMP;
         currentState = WAITING_FOR_INPUT;
         break;
     case '4':
         Logger::console("Current: %.1f  Enter new Low Temp Limit (-20.0-120.0 C, blank to keep):", eepromdata.UnderTSetpoint);
-        pendingConfig = 4;
+        pendingEdit = EDIT_UNDER_TEMP;
         currentState = WAITING_FOR_INPUT;
         break;
     case '5':
         Logger::console("Current: %.3f  Enter new Balance Voltage (0.0-6.0 V, blank to keep):", eepromdata.balanceVoltage);
-        pendingConfig = 5;
+        pendingEdit = EDIT_BALANCE_VOLTAGE;
         currentState = WAITING_FOR_INPUT;
         break;
     case '6':
         Logger::console("Current: %.3f  Enter new Balance Hysteresis (0.0-1.0 V, blank to keep):", eepromdata.balanceHyst);
-        pendingConfig = 6;
+        pendingEdit = EDIT_BALANCE_HYST;
         currentState = WAITING_FOR_INPUT;
         break;
     case '0': currentState = ROOT_MENU; printRootMenu(); break;
@@ -217,8 +237,8 @@ void Menu::handleWaitingForInput() {
         return;
     }
 
-    switch (pendingConfig) {
-    case 1:
+    switch (pendingEdit) {
+    case EDIT_OVER_VOLTAGE:
         if (newVal >= 0.0f && newVal <= 6.0f) {
             eepromdata.OverVSetpoint = newVal;
             EEPROMSettings::save();
@@ -227,7 +247,7 @@ void Menu::handleWaitingForInput() {
             Logger::console("Invalid value. Range: 0.0 - 6.0 V");
         }
         break;
-    case 2:
+    case EDIT_UNDER_VOLTAGE:
         if (newVal >= 0.0f && newVal <= 6.0f) {
             eepromdata.UnderVSetpoint = newVal;
             EEPROMSettings::save();
@@ -236,7 +256,7 @@ void Menu::handleWaitingForInput() {
             Logger::console("Invalid value. Range: 0.0 - 6.0 V");
         }
         break;
-    case 3:
+    case EDIT_OVER_TEMP:
         if (newVal >= 0.0f && newVal <= 100.0f) {
             eepromdata.OverTSetpoint = newVal;
             EEPROMSettings::save();
@@ -245,7 +265,7 @@ void Menu::handleWaitingForInput() {
             Logger::console("Invalid value. Range: 0.0 - 100.0 C");
         }
         break;
-    case 4:
+    case EDIT_UNDER_TEMP:
         if (newVal >= -20.0f && newVal <= 120.0f) {
             eepromdata.UnderTSetpoint = newVal;
             EEPROMSettings::save();
@@ -254,7 +274,7 @@ void Menu::handleWaitingForInput() {
             Logger::console("Invalid value. Range: -20.0 - 120.0 C");
         }
         break;
-    case 5:
+    case EDIT_BALANCE_VOLTAGE:
         if (newVal >= 0.0f && newVal <= 6.0f) {
             eepromdata.balanceVoltage = newVal;
             EEPROMSettings::save();
@@ -263,7 +283,7 @@ void Menu::handleWaitingForInput() {
             Logger::console("Invalid value. Range: 0.0 - 6.0 V");
         }
         break;
-    case 6:
+    case EDIT_BALANCE_HYST:
         if (newVal >= 0.0f && newVal <= 1.0f) {
             eepromdata.balanceHyst = newVal;
             EEPROMSettings::save();
@@ -287,28 +307,12 @@ void Menu::returnToConfigMenu() {
 
 void Menu::handleModuleCommand(char c) {
     switch (c) {
-    case '1':
-        Logger::console("Sleeping all connected boards");
-        bms.sleepBoards();
-        break;
-    case '2':
-        Logger::console("Waking up all connected boards");
-        bms.wakeBoards();
-        break;
-    case '3':
-        bms.findBoards();
-        break;
-    case '4':
-        Logger::console("Renumbering all boards");
-        bms.renumberBoardIDs();
-        break;
-    case '5':
-        Logger::console("Clearing all faults");
-        bms.clearFaults();
-        break;
-    case '6':
-        bms.balanceCells();
-        break;
+    case '1': Logger::console("Sleeping all connected boards"); bms.sleepBoards(); break;
+    case '2': Logger::console("Waking up all connected boards"); bms.wakeBoards(); break;
+    case '3': bms.findBoards(); break;
+    case '4': Logger::console("Renumbering all boards"); bms.renumberBoardIDs(); break;
+    case '5': Logger::console("Clearing all faults"); bms.clearFaults(); break;
+    case '6': bms.balanceCells(); break;
     case '0': currentState = ROOT_MENU; printRootMenu(); break;
     default:  Logger::console("Unknown option"); break;
     }
@@ -316,36 +320,11 @@ void Menu::handleModuleCommand(char c) {
 
 void Menu::handleLoggingCommand(char c) {
     switch (c) {
-    case '1':
-        Logger::setLoglevel(Logger::Debug);
-        eepromdata.logLevel = 0;
-        EEPROMSettings::save();
-        Logger::console("Log level set to: Debug");
-        break;
-    case '2':
-        Logger::setLoglevel(Logger::Info);
-        eepromdata.logLevel = 1;
-        EEPROMSettings::save();
-        Logger::console("Log level set to: Info");
-        break;
-    case '3':
-        Logger::setLoglevel(Logger::Warn);
-        eepromdata.logLevel = 2;
-        EEPROMSettings::save();
-        Logger::console("Log level set to: Warning");
-        break;
-    case '4':
-        Logger::setLoglevel(Logger::Error);
-        eepromdata.logLevel = 3;
-        EEPROMSettings::save();
-        Logger::console("Log level set to: Error");
-        break;
-    case '5':
-        Logger::setLoglevel(Logger::Off);
-        eepromdata.logLevel = 4;
-        EEPROMSettings::save();
-        Logger::console("Log level set to: Off");
-        break;
+    case '1': Logger::setLoglevel(Logger::Debug); eepromdata.logLevel = 0; EEPROMSettings::save(); Logger::console("Log level set to: Debug"); break;
+    case '2': Logger::setLoglevel(Logger::Info);  eepromdata.logLevel = 1; EEPROMSettings::save(); Logger::console("Log level set to: Info"); break;
+    case '3': Logger::setLoglevel(Logger::Warn);  eepromdata.logLevel = 2; EEPROMSettings::save(); Logger::console("Log level set to: Warning"); break;
+    case '4': Logger::setLoglevel(Logger::Error); eepromdata.logLevel = 3; EEPROMSettings::save(); Logger::console("Log level set to: Error"); break;
+    case '5': Logger::setLoglevel(Logger::Off);   eepromdata.logLevel = 4; EEPROMSettings::save(); Logger::console("Log level set to: Off"); break;
     case '0': currentState = ROOT_MENU; printRootMenu(); break;
     default:  Logger::console("Unknown option"); break;
     }
