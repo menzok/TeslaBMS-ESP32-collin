@@ -1,3 +1,8 @@
+
+/*
+ * EEPROMSettings.cpp  handler for all things relating to EEPROM, including loading/saving settings and factory reset
+ */
+
 #include "EEPROMSettings.h"
 #include "Logger.h"
 
