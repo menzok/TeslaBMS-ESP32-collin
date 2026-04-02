@@ -2,17 +2,9 @@
 #include "SerialConsole.h"  // TODO: replace with Menu.h when Menu is ready
 #include "BMSModuleManager.h"
 #include "EEPROMSettings.h"
-#include <WiFi.h>
-#include <PubSubClient.h>
 
-WiFiClient espClient;
-PubSubClient mqtt(espClient);
 
-// ==================== CHANGE THESE ====================
-const char* ssid = "Zoom";
-const char* password = "gdr543l7";
-const char* mqtt_server = "192.168.1.213";   // ← your Pi IP
-// =======================================================
+
 
 
 
@@ -33,49 +25,7 @@ void setup() {
     SERIALCONSOLE.println("Finding connected boards, RUN Board renumbering on pack change");
 	bms.findBoards();
 
-    // ==================== YOUR PROVEN WORKING WIFI BLOCK ====================
-    SERIALCONSOLE.print("SSID: ");
-    SERIALCONSOLE.println(ssid);
-    SERIALCONSOLE.print("Password length: ");
-    SERIALCONSOLE.println(strlen(password));
-    SERIALCONSOLE.print("Password bytes (hex): ");
-    for (int i = 0; i < strlen(password); i++) {
-        SERIALCONSOLE.printf("%02X ", password[i]);
-    }
-    SERIALCONSOLE.println("\n");
-
-    SERIALCONSOLE.println("Scanning for networks...");
-    int n = WiFi.scanNetworks();
-    SERIALCONSOLE.printf("%d networks found\n", n);
-    for (int i = 0; i < n; i++) {
-        if (String(WiFi.SSID(i)) == ssid) SERIALCONSOLE.print(">>> ");
-        SERIALCONSOLE.printf("%s  RSSI:%d\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i));
-    }
-
-    SERIALCONSOLE.printf("\nConnecting to %s...\n", ssid);
-    WiFi.begin(ssid, password);
-
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < 30000) {
-        delay(500);
-        SERIALCONSOLE.print(".");
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        SERIALCONSOLE.println("\n\nWiFi CONNECTED!");
-        SERIALCONSOLE.print("IP address: ");
-        SERIALCONSOLE.println(WiFi.localIP());
-    } else {
-        SERIALCONSOLE.println("\n\nWiFi FAILED!");
-        SERIALCONSOLE.printf("Status code: %d\n", WiFi.status());
-        while (1) delay(1000);
-    }
-
-    mqtt.setServer(mqtt_server, 1883);
-    mqtt.connect("TeslaBMS");
-
-    // Publish device status once (required by dbus-mqtt-devices)
-    mqtt.publish("device/teslabms/Status", "{\"clientId\":\"teslabms\",\"connected\":1,\"version\":\"1.0\",\"services\":{\"b1\":\"battery\"}}");
+    
 }
 
 void loop() {
@@ -102,12 +52,5 @@ void loop() {
 
         char json[128];
 
-        // Exact JSON format the driver expects
-        sprintf(json, "{\"Dc\":{\"Voltage\":%.2f,\"Current\":%.2f,\"Power\":%.2f},\"Soc\":%d}", 
-                packV, current, packV * current, soc);
-
-        mqtt.publish("teslabms/battery", json);   // matches the topic in config.ini
-
-       // SERIALCONSOLE.printf("Published JSON → SOC:%d%% V:%.2fV\n", soc, packV);
     }
 }
