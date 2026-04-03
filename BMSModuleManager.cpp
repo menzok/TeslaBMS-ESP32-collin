@@ -486,11 +486,11 @@ ModuleSummary BMSModuleManager::getModuleSummary(int module)
     if (temp < 0) temp = 0;
     s.avgTemp = (int8_t)temp;
 
-    temp = (int)modules[module].getLowestTemp() + 40;
+    temp = (int)modules[module].getLowTemp() + 40;
     if (temp < 0) temp = 0;
     s.minTemp = (int8_t)temp;
 
-    temp = (int)modules[module].getHighestTemp() + 40;
+    temp = (int)modules[module].getHighTemp() + 40;
     if (temp < 0) temp = 0;
     s.maxTemp = (int8_t)temp;
 
@@ -502,8 +502,8 @@ CellDetails BMSModuleManager::getCellDetails(int module, int cell)
     CellDetails c;
 
     c.cellVoltage = modules[module].getCellVoltage(cell);
-    c.highestCellVolt = modules[module].getHighestCellVolt();
-    c.lowestCellVolt = modules[module].getLowestCellVolt();
+    c.highestCellVolt = modules[module].getHighestCellVolt(cell);
+    c.lowestCellVolt = modules[module].getLowestCellVolt(cell);
 
     int temp = modules[module].getHighTemp() + 40;
     if (temp < 0) temp = 0;
