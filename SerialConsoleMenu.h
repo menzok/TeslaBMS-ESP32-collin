@@ -8,10 +8,9 @@
 class Menu {
 public:
     Menu();
-    void begin();
     void loop();
     void handleInput(char c);
-
+    
 private:
 	enum MenuState {  //What menu we are currently in, used to determine what to print and how to handle input
         ROOT_MENU,
@@ -21,12 +20,6 @@ private:
         DEFAULTS_MENU,
         WAITING_FOR_INPUT
     };
-
-    MenuState currentState = ROOT_MENU;
-    bool isMenuOpen = true;
-    bool printPrettyDisplay = false;
-    uint32_t prettyCounter = 0;
-    int whichDisplay = 0;
 	enum PendingEdit { //What setting we are currently waiting for input on, used to determine how to handle input and return to the correct menu after input is received
         NO_EDIT,
         EDIT_OVER_VOLTAGE,
@@ -35,8 +28,16 @@ private:
         EDIT_UNDER_TEMP,
         EDIT_BALANCE_VOLTAGE,
         EDIT_BALANCE_HYST
-        // Add new editable fields here — no magic numbers
+        // Add new editable fields here
     };
+
+
+    MenuState currentState = ROOT_MENU;
+    bool isMenuOpen = true;
+    bool printPrettyDisplay = false;
+    uint32_t prettyCounter = 0;
+    int whichDisplay = 0;
+
 
     PendingEdit pendingEdit = NO_EDIT;
 
@@ -56,4 +57,5 @@ private:
     void handleDefaultsCommand(char c);
     void handleWaitingForInput();
     void returnToConfigMenu();
+	
 };
