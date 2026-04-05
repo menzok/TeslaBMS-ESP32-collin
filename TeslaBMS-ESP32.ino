@@ -4,8 +4,13 @@
 #include "EEPROMSettings.h"
 
 
-extern BMSOverlord Overlord;
-Menu menu;
+// === GLOBAL OBJECT INSTANCES (these were missing) ===
+BMSModuleManager bms;               // the module manager
+ContactorController contactor;     // contactor logic
+SOCCalculator socCalculator;        // SOC & current calculation
+BMSOverlord Overlord;               // the main BMS controller
+Menu menu;            // the interactive serial console menu
+// ===================================================
 uint32_t lastUpdate = 0;
 
 

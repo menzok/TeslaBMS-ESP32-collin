@@ -4,6 +4,7 @@
 #include "BMSModuleManager.h"
 #include "config.h"
 
+extern BMSModuleManager bms;
 // ─── Coulomb counter auto-reset thresholds ───────────────────────────────────
 #define SOC_CELL_FULL_VOLTAGE       4.15f   // V/cell - declare 100%
 #define SOC_CELL_EMPTY_VOLTAGE      3.00f   // V/cell - declare 0%

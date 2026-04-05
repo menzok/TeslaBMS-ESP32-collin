@@ -17,7 +17,7 @@ SOCCalculator::SOCCalculator()
 // ─────────────────────────────────────────────────────────────────────────────
 void SOCCalculator::begin()
 {
-    _cellsInSeries = (int)(bms.getModuleCount() / eepromdata.parallelStrings) * 6;
+    _cellsInSeries = (int)(bms.getNumberOfModules() / eepromdata.parallelStrings) * 6;
 	_packCapacityAh = (float)eepromdata.parallelStrings * 22.0f; // 22Ah per string for Tesla 18650 modules - adjust if using different cells
     _fullConfirmTicks = 0;
     _emptyConfirmTicks = 0;

@@ -7,6 +7,8 @@
 #include "EEPROMSettings.h"  
 #include "SOCCalculator.h"
 
+extern SOCCalculator socCalculator;
+
 
 void ContactorController::init() {
     currentState = OPEN;
@@ -46,7 +48,7 @@ void ContactorController::update() {
             prechargeDone = true;
         }
         else if (eepromdata.currentSensorPresent) {
-            float current = SOCCalculator::getPackCurrentAmps();
+            float current = socCalculator.getPackCurrentAmps();;
             if (current < 0.5f) {
                 prechargeDone = true;
             }

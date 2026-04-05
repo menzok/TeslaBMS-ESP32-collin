@@ -16,7 +16,12 @@ void BMSOverlord::init() {
     socCalculator.begin();   
 
     // Enable ESP32 task watchdog (15 s for init)
-    esp_task_wdt_init(15, true);
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms = 15000,
+        .idle_core_mask = 0,
+        .trigger_panic = true
+    };
+    esp_task_wdt_init(&twdt_config);
     esp_task_wdt_add(NULL);
 
     Serial.println("BMSOverlord: Init complete - watchdog enabled (15 s)");
@@ -29,10 +34,15 @@ void BMSOverlord::update() {
     esp_task_wdt_reset();
 
     if (!watchdogTightened && ++successfulUpdates >= 5) {
-        esp_task_wdt_reconfigure(1000);
+        esp_task_wdt_config_t twdt_tight = {
+            .timeout_ms = 1000,
+            .idle_core_mask = 0,
+            .trigger_panic = true
+        };
+        esp_task_wdt_reconfigure(&twdt_tight);
         watchdogTightened = true;
-        Serial.println("BMSOverlord: Watchdog leash tightened to 1 second....GET OVER HERE");
-    }
+        Serial.println("BMSOverlord: Watchdog tightened to 1 second....GET OVER HERE");
+	}
 
     bms.getAllVoltTemp();
     bms.balanceCells();
@@ -47,7 +57,7 @@ void BMSOverlord::update() {
 
 
 void BMSOverlord::runSafetyChecks() {
-    // === Over-current / short-circuit (fast, no debounce) === Use Fuses DUMMY... but just incase hehe...
+    // === Over-current / short-circuit (fast, no debounce) ===
     float currentA = socCalculator.getPackCurrentAmps();
     if (currentA > OVERCURRENT_THRESHOLD_A) {
         logFault(FaultEntry::Type::OverCurrent, 0, 0, currentA);
@@ -63,29 +73,32 @@ void BMSOverlord::runSafetyChecks() {
         for (uint8_t c = 0; c < 6; c++) {   // Tesla modules have 6 cells
             CellDetails cell = bms.getCellDetails(m, c);
 
-            // Raw threshold checks (hysteresis is only applied on recovery)
-            bool overVoltage = (cell.voltage > eepromdata.OverVSetpoint);
-            bool underVoltage = (cell.voltage < eepromdata.UnderVSetpoint);
-            bool overTemp = (cell.temp > eepromdata.OverTSetpoint);
-            bool underTemp = (cell.temp < eepromdata.UnderTSetpoint);
+            float voltage = cell.cellVoltage;
+            float tempC = cell.highTemp - 40.0f;   // remove +40 offset that getCellDetails() adds
+
+            // Raw threshold checks
+            bool overVoltage = (voltage > eepromdata.OverVSetpoint);
+            bool underVoltage = (voltage < eepromdata.UnderVSetpoint);
+            bool overTemp = (tempC > eepromdata.OverTSetpoint);
+            bool underTemp = (tempC < eepromdata.UnderTSetpoint);
 
             // --- Over Voltage debounce ---
             if (overVoltage) {
                 if (++ovDebounce[m] >= CELL_FAULT_DEBOUNCE) {
                     anyFault = true;
-                    logFault(FaultEntry::Type::OverVoltage, m, c, cell.voltage);
-                    ovDebounce[m] = CELL_FAULT_DEBOUNCE;  // cap counter
+                    logFault(FaultEntry::Type::OverVoltage, m, c, voltage);
+                    ovDebounce[m] = CELL_FAULT_DEBOUNCE;
                 }
             }
             else {
-                ovDebounce[m] = 0;   // reset on good reading
+                ovDebounce[m] = 0;
             }
 
             // --- Under Voltage debounce ---
             if (underVoltage) {
                 if (++uvDebounce[m] >= CELL_FAULT_DEBOUNCE) {
                     anyFault = true;
-                    logFault(FaultEntry::Type::UnderVoltage, m, c, cell.voltage);
+                    logFault(FaultEntry::Type::UnderVoltage, m, c, voltage);
                     uvDebounce[m] = CELL_FAULT_DEBOUNCE;
                 }
             }
@@ -97,7 +110,7 @@ void BMSOverlord::runSafetyChecks() {
             if (overTemp) {
                 if (++otDebounce[m] >= CELL_FAULT_DEBOUNCE) {
                     anyFault = true;
-                    logFault(FaultEntry::Type::OverTemperature, m, c, cell.temp);
+                    logFault(FaultEntry::Type::OverTemperature, m, c, tempC);
                     otDebounce[m] = CELL_FAULT_DEBOUNCE;
                 }
             }
@@ -109,7 +122,7 @@ void BMSOverlord::runSafetyChecks() {
             if (underTemp) {
                 if (++utDebounce[m] >= CELL_FAULT_DEBOUNCE) {
                     anyFault = true;
-                    logFault(FaultEntry::Type::UnderTemperature, m, c, cell.temp);
+                    logFault(FaultEntry::Type::UnderTemperature, m, c, tempC);
                     utDebounce[m] = CELL_FAULT_DEBOUNCE;
                 }
             }
@@ -150,6 +163,7 @@ void BMSOverlord::handleContactorLogic() {
         if (contactor.getState() != ContactorState::CONNECTED) {
             contactor.close();
         }
+    }
 }
 
 void BMSOverlord::handleStorageMode() {
