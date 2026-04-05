@@ -20,7 +20,7 @@ constexpr uint32_t DEFAULT_PRECHARGE_TIMEOUT_MS = 8000;     // 8 seconds max for
 constexpr bool DEFAULT_CURRENT_SENSOR_PRESENT = false; // Hall effect / current detector installed?
 constexpr float DEFAULT_CURRENT_SENSOR_VBIAS = 2.5f;     // For a current sensor like the QN-C15S
 constexpr float DEFAULT_CURRENT_SENSOR_VRANGE = 0.625f;   // For a current sensor like the QN-C15S with ± rated current range around the bias point
-constexpr int   DEFAULT_CURRENT_SENSOR_RATED_AMPS = 500;   // QN-C15S default
+constexpr int   DEFAULT_CURRENT_SENSOR_RATED_AMPS = 500;   //Current sensor AMP rating QN-C15S default
 constexpr float DEFAULT_SOC_PERCENT = 50.0f; 
 constexpr float DEFAULT_COULOMB_COUNT_AH = 0.0f;
 
