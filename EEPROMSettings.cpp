@@ -49,6 +49,7 @@ void EEPROMSettings::load()
     {
         Logger::console("Settings loaded from EEPROM successfully");
     }
+    Logger::setLoglevel((Logger::LogLevel)eepromdata.logLevel); //set log level.... derp.
 }
 
 void EEPROMSettings::save()

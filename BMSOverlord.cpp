@@ -1,5 +1,6 @@
 ﻿#include "BMSOverlord.h"
 #include <esp_task_wdt.h>
+#include "Logger.h"
 
 void BMSOverlord::init() {
     Serial.println("BMSOverlord: Initializing...");
@@ -74,7 +75,14 @@ void BMSOverlord::runSafetyChecks() {
             CellDetails cell = bms.getCellDetails(m, c);
 
             float voltage = cell.cellVoltage;
-            float tempC = cell.highTemp - 40.0f;   // remove +40 offset that getCellDetails() adds
+            float tempC = cell.highTemp - 40.0f;   // remove +40 offset
+
+            // === DEBUG: Show any cell that should be triggering ===
+            if (voltage > eepromdata.OverVSetpoint || voltage < eepromdata.UnderVSetpoint ||
+                tempC > eepromdata.OverTSetpoint || tempC < eepromdata.UnderTSetpoint) {
+                Logger::debug("DEBUG: Bad cell detected! Module=%d Cell=%d  V=%.3fV  T=%.1f°C",
+                    m, c, voltage, tempC);
+            }
 
             // Raw threshold checks
             bool overVoltage = (voltage > eepromdata.OverVSetpoint);

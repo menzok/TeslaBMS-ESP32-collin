@@ -4,7 +4,7 @@
 #include "EEPROMSettings.h"
 
 
-// === GLOBAL OBJECT INSTANCES (these were missing) ===
+// === GLOBAL OBJECT INSTANCES ===
 BMSModuleManager bms;               // the module manager
 ContactorController contactor;     // contactor logic
 SOCCalculator socCalculator;        // SOC & current calculation
