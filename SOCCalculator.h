@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include "EEPROMSettings.h"
 #include "BMSModuleManager.h"
-
+#include "config.h"
 
 // ─── Coulomb counter auto-reset thresholds ───────────────────────────────────
 #define SOC_CELL_FULL_VOLTAGE       4.15f   // V/cell - declare 100%
@@ -67,7 +67,7 @@ public:
 
     void begin(
         int   cellsInSeries,
-        float packCapacityAh)
+        float packCapacityAh);
 
 
     // Call every SOC_UPDATE_INTERVAL_MS from main scheduler - never blocks

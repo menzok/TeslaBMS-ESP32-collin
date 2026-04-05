@@ -50,7 +50,7 @@ void SOCCalculator::begin(int cellsInSeries, float packCapacityAh)
         _filteredCurrentA = 0.0f;
         _lastCurrentA = 0.0f;
     }
-}}
+}
 
 // ───────────────────────────────────────────────────────────────────────���─────
 void SOCCalculator::update()
