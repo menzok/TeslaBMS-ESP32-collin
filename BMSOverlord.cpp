@@ -4,6 +4,16 @@
 
 void BMSOverlord::init() {
     Serial.println("BMSOverlord: Initializing...");
+    // Enable ESP32 task watchdog (15 s for init)
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms = 15000,
+        .idle_core_mask = 0,
+        .trigger_panic = true
+    };
+    esp_task_wdt_init(&twdt_config);
+    esp_task_wdt_add(NULL);
+
+    Serial.println("BMSOverlord: Init complete - watchdog enabled (15 s)");
 
     contactor.init();
     SERIALCONSOLE.println("Scanning for connected BMS boards..."); //Scan for modules and print results
@@ -15,17 +25,6 @@ void BMSOverlord::init() {
         SERIALCONSOLE.printf("Found %d connected BMS modules\n", bms.getNumberOfModules());
     }
     socCalculator.begin();   
-
-    // Enable ESP32 task watchdog (15 s for init)
-    esp_task_wdt_config_t twdt_config = {
-        .timeout_ms = 15000,
-        .idle_core_mask = 0,
-        .trigger_panic = true
-    };
-    esp_task_wdt_init(&twdt_config);
-    esp_task_wdt_add(NULL);
-
-    Serial.println("BMSOverlord: Init complete - watchdog enabled (15 s)");
 }
 
 
@@ -58,97 +57,88 @@ void BMSOverlord::update() {
 
 
 void BMSOverlord::runSafetyChecks() {
-    // === Over-current / short-circuit (fast, no debounce) ===
-    float currentA = socCalculator.getPackCurrentAmps();
-    if (currentA > OVERCURRENT_THRESHOLD_A) {
-        logFault(FaultEntry::Type::OverCurrent, 0, 0, currentA);
-        currentState = BMSState::Fault;
-        return;   // immediate fault
-    }
 
-    // === Per-cell voltage & temperature with debounce ===
-    uint8_t modules = bms.getNumberOfModules();
+    float currentA = socCalculator.getPackCurrentAmps();
     bool anyFault = false;
 
+    // Overcurrent - immediate, no debounce
+    if (currentA > OVERCURRENT_THRESHOLD_A) {
+        if (currentState != BMSState::Fault) {          // rising edge
+            logFault(FaultEntry::Type::OverCurrent, 0, 0, currentA);
+            Serial.printf("OVERCURRENT FAULT! %.1f A\n", currentA);
+        }
+        anyFault = true;
+    }
+
+    uint8_t modules = bms.getNumberOfModules();
+
     for (uint8_t m = 0; m < modules && m < 32; m++) {
-        for (uint8_t c = 0; c < 6; c++) {   // Tesla modules have 6 cells
+        for (uint8_t c = 0; c < 6; c++) {
             CellDetails cell = bms.getCellDetails(m, c);
-
             float voltage = cell.cellVoltage;
-            float tempC = cell.highTemp - 40.0f;   // remove +40 offset
+            float tempC = cell.highTemp - 40.0f;
 
-            // === DEBUG: Show any cell that should be triggering ===
-            if (voltage > eepromdata.OverVSetpoint || voltage < eepromdata.UnderVSetpoint ||
-                tempC > eepromdata.OverTSetpoint || tempC < eepromdata.UnderTSetpoint) {
-                Logger::debug("DEBUG: Bad cell detected! Module=%d Cell=%d  V=%.3fV  T=%.1f°C",
-                    m, c, voltage, tempC);
-            }
-
-            // Raw threshold checks
             bool overVoltage = (voltage > eepromdata.OverVSetpoint);
             bool underVoltage = (voltage < eepromdata.UnderVSetpoint);
             bool overTemp = (tempC > eepromdata.OverTSetpoint);
             bool underTemp = (tempC < eepromdata.UnderTSetpoint);
 
-            // --- Over Voltage debounce ---
+            ///leaving this here, but debugging was not fun...
+        //    Serial.printf("M%d C%d  V=%.3fV  T=%.1f°C  ov=%d uv=%d ot=%d ut=%d\n",
+        //        m, c, voltage, tempC, overVoltage, underVoltage, overTemp, underTemp);
+
+            // Per-cell debounce + log ONLY ONCE when it first hits the threshold
             if (overVoltage) {
-                if (++ovDebounce[m] >= CELL_FAULT_DEBOUNCE) {
-                    anyFault = true;
+                if (++ovDebounce[m][c] == CELL_FAULT_DEBOUNCE) {   // note: == not >=
                     logFault(FaultEntry::Type::OverVoltage, m, c, voltage);
-                    ovDebounce[m] = CELL_FAULT_DEBOUNCE;
+                    anyFault = true;
                 }
             }
             else {
-                ovDebounce[m] = 0;
+                ovDebounce[m][c] = 0;
             }
 
-            // --- Under Voltage debounce ---
             if (underVoltage) {
-                if (++uvDebounce[m] >= CELL_FAULT_DEBOUNCE) {
-                    anyFault = true;
+                if (++uvDebounce[m][c] == CELL_FAULT_DEBOUNCE) {
                     logFault(FaultEntry::Type::UnderVoltage, m, c, voltage);
-                    uvDebounce[m] = CELL_FAULT_DEBOUNCE;
+                    anyFault = true;
                 }
             }
             else {
-                uvDebounce[m] = 0;
+                uvDebounce[m][c] = 0;
             }
 
-            // --- Over Temperature debounce ---
             if (overTemp) {
-                if (++otDebounce[m] >= CELL_FAULT_DEBOUNCE) {
-                    anyFault = true;
+                if (++otDebounce[m][c] == CELL_FAULT_DEBOUNCE) {
                     logFault(FaultEntry::Type::OverTemperature, m, c, tempC);
-                    otDebounce[m] = CELL_FAULT_DEBOUNCE;
-                }
-            }
-            else {
-                otDebounce[m] = 0;
-            }
-
-            // --- Under Temperature debounce ---
-            if (underTemp) {
-                if (++utDebounce[m] >= CELL_FAULT_DEBOUNCE) {
                     anyFault = true;
-                    logFault(FaultEntry::Type::UnderTemperature, m, c, tempC);
-                    utDebounce[m] = CELL_FAULT_DEBOUNCE;
                 }
             }
             else {
-                utDebounce[m] = 0;
+                otDebounce[m][c] = 0;
+            }
+
+            if (underTemp) {
+                if (++utDebounce[m][c] == CELL_FAULT_DEBOUNCE) {
+                    logFault(FaultEntry::Type::UnderTemperature, m, c, tempC);
+                    anyFault = true;
+                }
+            }
+            else {
+                utDebounce[m][c] = 0;
             }
         }
     }
 
-    // Update overall BMS state
-    if (anyFault) {
-        currentState = (currentState == BMSState::Normal) ? BMSState::Warning : BMSState::Fault;
+    // State machine with proper recovery
+    if (anyFault && currentState != BMSState::Fault) {
+        currentState = BMSState::Fault;
+        Logger::warn("*** FAULT DETECTED - Entering Fault state ***");
     }
-    else {
-        if (currentState == BMSState::Fault || currentState == BMSState::Warning) {
-            currentState = BMSState::Normal;
-            clearLastFaultIfResolved();
-        }
+    else if (!anyFault && currentState == BMSState::Fault) {
+        currentState = BMSState::Normal;
+        clearLastFaultIfResolved();   // marks the fault as cleared in the log
+        Logger::warn("*** FAULT CLEARED - Returning to Normal state ***");
     }
 }
 
@@ -214,11 +204,11 @@ void BMSOverlord::logFault(FaultEntry::Type type, uint8_t module, uint8_t cell, 
 void BMSOverlord::requestShutdown() {
     shutdownRequested = true;
     storageModeActive = true;
-    Serial.println("BMSOverlord: Shutdown requested - entering Storage mode");
+    Logger::warn("BMSOverlord: Shutdown requested - entering Storage mode");
 }
 
 void BMSOverlord::requestStartup() {
     shutdownRequested = false;
     storageModeActive = false;
-    Serial.println("BMSOverlord: Startup requested - returning to Normal mode");
+    Logger::warn("BMSOverlord: Startup requested - returning to Normal mode");
 }

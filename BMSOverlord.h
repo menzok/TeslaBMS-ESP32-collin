@@ -77,12 +77,11 @@ private:
     bool watchdogTightened = false;
     uint8_t successfulUpdates = 0;
 
-    // Safety debounce (max 32 modules)
-    uint8_t ovDebounce[32] = { 0 };
-    uint8_t uvDebounce[32] = { 0 };
-    uint8_t otDebounce[32] = { 0 };
-    uint8_t utDebounce[32] = { 0 };
-
+    // Safety debounce (supports up to 64 modules)
+    uint8_t ovDebounce[64][6] = {};
+    uint8_t uvDebounce[64][6] = {};
+    uint8_t otDebounce[64][6] = {};
+    uint8_t utDebounce[64][6] = {};
 
     void runSafetyChecks();
     void handleContactorLogic();
