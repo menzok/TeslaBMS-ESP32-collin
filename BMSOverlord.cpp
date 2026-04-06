@@ -70,9 +70,7 @@ void BMSOverlord::runSafetyChecks() {
         anyFault = true;
     }
 
-    uint8_t modules = bms.getNumberOfModules();
-
-    for (uint8_t m = 0; m < modules && m < 32; m++) {
+    for (uint8_t m = 0; m < bms.getNumberOfModules(); m++) {
         for (uint8_t c = 0; c < 6; c++) {
             CellDetails cell = bms.getCellDetails(m, c);
             float voltage = cell.cellVoltage;

@@ -2,3 +2,6 @@ Load defaults menu option in config needs to be changed, current version loads A
 current implementation in the Vovervolt and undervolt settings... Current sensor has its own defaults, with SOC and ext...
 
 Plan is to create Reset these values to their default setting for each menu option.
+
+
+Big BUG...Overlord does not detect if a module stops communicating.
