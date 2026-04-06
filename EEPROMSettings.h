@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <Arduino.h>
 #include <EEPROM.h>
@@ -19,7 +19,7 @@ inline constexpr bool   DEFAULT_PRECHARGE_ENABLED = true; // Pre-charge is gener
 inline constexpr uint32_t DEFAULT_PRECHARGE_TIMEOUT_MS = 8000;     // 8 seconds max for pre-charge
 inline constexpr bool DEFAULT_CURRENT_SENSOR_PRESENT = false; // Hall effect / current detector installed?
 inline constexpr float DEFAULT_CURRENT_SENSOR_VBIAS = 2.5f;     // For a current sensor like the QN-C15S
-inline constexpr float DEFAULT_CURRENT_SENSOR_VRANGE = 0.625f;   // For a current sensor like the QN-C15S with � rated current range around the bias point
+inline constexpr float DEFAULT_CURRENT_SENSOR_VRANGE = 0.625f;   // For a current sensor like the QN-C15S with ą rated current range around the bias point
 inline constexpr int   DEFAULT_CURRENT_SENSOR_RATED_AMPS = 500;   //Current sensor AMP rating QN-C15S default
 inline constexpr float DEFAULT_SOC_PERCENT = 50.0f;
 inline constexpr float DEFAULT_COULOMB_COUNT_AH = 0.0f;
@@ -29,7 +29,7 @@ inline constexpr uint32_t DEFAULT_STORAGE_WAKE_INTERVAL_MS = 24 * 60 * 60 * 1000
 inline constexpr uint32_t DEFAULT_STORAGE_BALANCE_DURATION_MS = 120000UL;
 inline constexpr uint8_t DEFAULT_CELL_FAULT_DEBOUNCE = 3;
 
-// ====================== Fault log array (used to display last 5 overlord faults ======================
+// ====================== EEPROM Settings Struct ======================
 struct FaultEntry {
     enum class Type : uint8_t {
         None,
@@ -47,12 +47,11 @@ struct FaultEntry {
     uint32_t clearedTimestamp = 0;
 };
 
-// ====================== EEPROM Settings Struct ======================
 typedef struct {
     uint8_t version;
     uint8_t checksum;
     uint8_t logLevel;
-	// Saftey THresholds
+    // Saftey THresholds
     float OverVSetpoint;
     float UnderVSetpoint;
     float OverTSetpoint;
@@ -62,7 +61,7 @@ typedef struct {
     // Contactor settings
     bool    prechargeEnabled;
     uint32_t prechargeTimeoutMs;      // fallback timer when no current sensor
-	// Current sensor settings
+    // Current sensor settings
     bool    currentSensorPresent;     // Hall effect sensor installed?
     float currentSensorVbias;       // e.g. 2.5f for QN-C15S
     float currentSensorVrange;      // e.g. 0.625f for QN-C15S
@@ -70,15 +69,17 @@ typedef struct {
     // State of Charge persistent state 
     float   socPercent;               // current SOC 0.0-100.0
     float   coulombCountAh;           // net Ah since last reset (+/-)
-	//Battery Configuration
+    //Battery Configuration
     uint8_t parallelStrings;      // number of parallel strings (e.g. 1, 2, 3...)
-	//overlord settings
+    //overlord settings
     FaultEntry faultLog[5];
     float OVERCURRENT_THRESHOLD_A; //  Short protection Use fuses DUMMY but just incase.
-	uint32_t STORAGE_WAKE_INTERVAL_MS;  // How long to wait between storage mode wake cycles to balance and refresh the cells (e.g. 24 hours)
-	uint32_t STORAGE_BALANCE_DURATION_MS;    // How long to keep the BMS awake and balancing during each storage mode wake cycle (e.g. 2 minutes)
+    uint32_t STORAGE_WAKE_INTERVAL_MS;  // How long to wait between storage mode wake cycles to balance and refresh the cells (e.g. 24 hours)
+    uint32_t STORAGE_BALANCE_DURATION_MS;    // How long to keep the BMS awake and balancing during each storage mode wake cycle (e.g. 2 minutes)
     uint8_t CELL_FAULT_DEBOUNCE;  // number of consecutive fault readings before faulting (to prevent noise/chatter)
 } EEPROMData;
+
+
 
 extern EEPROMData eepromdata;
 
@@ -86,5 +87,11 @@ class EEPROMSettings {
 public:
     static void load();
     static void save();
-    static void loadDefaults();
+    static void loadDefaults();           // full factory reset
+
+    // === Per-menu reset functions (exactly matching your grouping) ===
+    static void resetSafetyThresholds();      // OverV/UnderV/OverT/UnderT + balance + OVERCURRENT + CELL_FAULT_DEBOUNCE
+    static void resetAdditionalHardware();    // Precharge + current sensor fields
+    static void resetBatteryConfig();         // parallelStrings + STORAGE_WAKE + STORAGE_BALANCE
+    static void resetFaultLog();              // (not exposed in Fault menu per your request)
 };

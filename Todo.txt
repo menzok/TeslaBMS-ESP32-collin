@@ -1,13 +1,8 @@
-Load defaults menu option in config needs to be changed, current version loads ALL defaults, Menu should load that menus default settings only, not all defaults.  
-current implementation in the Vovervolt and undervolt settings... Current sensor has its own defaults, with SOC and ext...
 
-Plan is to create Reset these values to their default setting for each menu option.
+***Big BUG...Overlord does not detect if a module stops communicating. Requires Architecture rework to fix.***
 
-
-Big BUG...Overlord does not detect if a module stops communicating.
-
-Need to move vars out of overlord into eeprom correctly.
-
-Update menu to include new eeprom settings.
+SOC needs to save periodically the culumb and soc.
+Also in SOC, need a way to periodically correct current sensor drift while running.
+Soc OVC Lookup is bad, Damn, MATLAB sucks.... 50,000 data points, GL getting crap out of that....
 
 protect ALL data reads with mutex... for dual core layer communication with other devices (wifi, bluetooth, SerialMenu, ect)
