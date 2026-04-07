@@ -73,4 +73,3 @@ Contributions, issues, and feature requests are welcome.
 ---
 
 **Original Author:** collin80  
-**ESP32 Port & Maintenance:** menzok
