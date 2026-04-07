@@ -1,6 +1,6 @@
-===========================================================================================================================
+# ===========================================================================================================================
 # BMSUtil.h / BMSUtil Class
-===========================================================================================================================
+# ===========================================================================================================================
 
 This header provides the low-level serial communication utilities used throughout the TeslaBMS-ESP32 firmware to talk to the individual Tesla battery modules.
 It implements the exact packet format, addressing, CRC checksum, and send/receive logic required by the Tesla BMS daisy-chain protocol.
@@ -45,9 +45,9 @@ Returns the number of bytes actually received (ideally equal to `retLen`).
 
 This class forms the entire serial-protocol abstraction layer. Higher-level classes never talk directly to the hardware UART; they call these four functions instead.
 
-===========================================================================================================================
+# ===========================================================================================================================
 # BMSModule.h / BMSModule.cpp / BMSModule Class
-===========================================================================================================================
+# ===========================================================================================================================
 
 This class represents one individual Tesla BMS module in the daisy-chain.
 It is the core data container and communication handler for a single physical module (which monitors 6 cells + 2 temperature sensors).
@@ -128,9 +128,9 @@ module (turns passive balancing on/off per cell).
 All the data listed above is stored privately and only exposed via the getters. The class is intentionally simple:
 it only ever reads from one specific address and caches the results. No global state except the external `eepromdata` struct (used only inside `balanceCells()`).
 
-===========================================================================================================================
+# ===========================================================================================================================
 # BMSModuleManager.h / BMSModuleManager.cpp / BMSModuleManager Class
-===========================================================================================================================
+# ===========================================================================================================================
 
 This is the central orchestrator for the entire battery pack. It owns a fixed array of BMSModule objects (one slot per possible module address) and is responsible 
 for discovery, addressing, system-wide commands, and providing aggregated pack-level data to the rest of the firmware.
@@ -203,9 +203,9 @@ to support parallel strings), updates the pack's running min/max temperature tra
 This class sits at the top of the low-level BMS stack. Everything above it talks exclusively to the manager. No direct calls to individual BMSModule objects or 
 BMSUtil occur outside this class.
 
-===========================================================================================================================
+# ===========================================================================================================================
 # SOCCalculator.h / SOCCalculator.cpp / SOCCalculator Class
-===========================================================================================================================
+# ===========================================================================================================================
 
 This class is responsible for calculating and maintaining the State of Charge (SOC) of the entire battery pack. It implements a hybrid estimation strategy:
 
@@ -263,9 +263,9 @@ Returns the current SOC as an integer byte value (0–100). This is the value pl
 This class operates "sideways" to the core BMS communication stack. It does not interact with individual modules or the serial bus — it only consumes 
 pack-level data from the manager and updates the persistent EEPROM-based SOC state.
 
-===========================================================================================================================
+# ===========================================================================================================================
 # ContactorController.h / ContactorController.cpp / ContactorController Class
-===========================================================================================================================
+# ===========================================================================================================================
 
 This class implements a non-blocking state-machine controller for the pack's main contactor and pre-charge relay. It handles the safe sequencing required
 to connect the battery pack to the vehicle's high-voltage system without inrush current damage.
@@ -310,9 +310,9 @@ Returns the current state of the contactor controller: `OPEN`, `PRECHARGING`, `C
 The class has no public data members. All state is kept private (`currentState`, `prechargeStartTime`, `postCloseDelayStart`).
 It never blocks or uses `delay()` — everything is time-based using `millis()`.
 
-===========================================================================================================================
+# ===========================================================================================================================
 # config.h
-===========================================================================================================================
+# ===========================================================================================================================
 
 This is the primary compile-time configuration header for the entire TeslaBMS-ESP32 project. It contains all the fixed, build-time settings that define how 
 the firmware talks to the hardware.
@@ -334,9 +334,9 @@ just `#define` constants and one small inline helper function.
 Safely sets both relay pins to `LOW` (off) and configures them as outputs, then applies the correct ADC attenuation (`ADC_11db`) to the current-sensor pin so the
 ESP32 can read the full voltage range of the Hall sensor.
 
-===========================================================================================================================
+# ===========================================================================================================================
 # EEPROMSettings.h / EEPROMSettings.cpp / EEPROMSettings Class
-===========================================================================================================================
+# ===========================================================================================================================
 
 This file provides the persistent storage layer for all runtime-configurable settings and a few pieces of operational state (SOC, coulomb counter, fault log).
 Settings are stored in the ESP32's built-in EEPROM using the Arduino EEPROM library and survive power cycles and firmware uploads.
@@ -382,9 +382,9 @@ Full factory reset. Sets version, `logLevel`, then calls the four per-group rese
 
 This class is the only place in the project that touches the EEPROM. All other files simply read/write the global `eepromdata` fields directly.
 
-===========================================================================================================================
+# ===========================================================================================================================
 # BMSOverlord.h / BMSOverlord.cpp / BMSOverlord Class
-===========================================================================================================================
+# ===========================================================================================================================
 
 This is the top-level coordinator / brain of the entire firmware. It sits above all the lower-level components (`BMSModuleManager`, `SOCCalculator`, 
 `ContactorController`, and `EEPROMSettings`) and is responsible for:
@@ -475,9 +475,9 @@ cleared timestamp.
 This class is intentionally the single point where all high-level policy lives. Everything below it is either data acquisition (`BMSModuleManager`) or a 
 specific subsystem (`SOCCalculator`, `ContactorController`).
 
-===========================================================================================================================
+# ===========================================================================================================================
 # TeslaBMS-ESP32.ino *(the main Arduino sketch)*
-===========================================================================================================================
+# ===========================================================================================================================
 
 This is the top-level entry point for the entire firmware. It is intentionally extremely minimal — its only job is to declare the global objects, perform one-time
 hardware and settings initialization, and run the main system heartbeat at a controlled rate while keeping the serial console responsive.
@@ -495,9 +495,9 @@ Menu menu;                          // interactive serial console (SerialConsole
 
 These five objects are the only globals in the entire project and are used directly by almost every other component.
 
-===========================================================================================================================
+# ===========================================================================================================================
 # SerialConsoleMenu.h / SerialConsoleMenu.cpp / Menu Class
-===========================================================================================================================
+# ===========================================================================================================================
 
 This is the interactive serial console for the entire TeslaBMS-ESP32 firmware. It provides a text-based menu system over `SERIALCONSOLE` (the USB debug port) 
 that lets you view live data, change settings, reset EEPROM sections, view the fault log, and trigger certain actions — all without needing the web UI.
@@ -564,9 +564,9 @@ Simply comment out the relevant cases in `handleRootCommand()` and remove the me
 
 The menu is completely decoupled from the BMS logic — it only reads from `bms`, `socCalculator`, `eepromdata`, and `Logger`. No safety or control code lives here.
 
-===========================================================================================================================
+# ===========================================================================================================================
 # Data Flow Summary
-===========================================================================================================================
+# ===========================================================================================================================
 
 - `Overlord.update()` → `bms.getAllVoltTemp()` → `BMSModule::readModuleValues()` → `BMSUtil` serial I/O.
 - Balancing, SOC, contactor, and safety checks run from the same heartbeat.

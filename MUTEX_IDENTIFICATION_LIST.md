@@ -16,13 +16,15 @@
 # write is atomic but a multi-field sequence is not. Any function that reads or writes more than
 # one field of eepromdata is a potential torn-read/write site.
 
-EEPROMSettings::load()                  → eepromdata (entire struct)                                            - Full struct write during load; second task reading any field mid-load gets partially old, partially new data (Risk: High)
-EEPROMSettings::save()                  → eepromdata (entire struct)                                            - Full struct read for EEPROM.put(); concurrent write from second task causes torn read to flash (Risk: High)
-EEPROMSettings::loadDefaults()          → eepromdata (multiple fields via three sub-calls)                      - Multi-field write across three functions; second task reading any threshold mid-reset gets inconsistent state (Risk: High)
-EEPROMSettings::resetSafetyThresholds() → eepromdata.OverVSetpoint / UnderVSetpoint / OverTSetpoint / UnderTSetpoint / balanceVoltage / balanceHyst / OVERCURRENT_THRESHOLD_A / CELL_FAULT_DEBOUNCE - Batch field write; safety thresholds must be updated atomically or runSafetyChecks() may use a mix of old and new limits (Risk: High)
-EEPROMSettings::resetAdditionalHardware() → eepromdata.prechargeEnabled / prechargeTimeoutMs / currentSensorPresent / currentSensorVbias / currentSensorVrange / currentSensorRatedAmps - Batch field write; contactor and SOC calculator depend on these being consistent (Risk: High)
-EEPROMSettings::resetBatteryConfig()    → eepromdata.parallelStrings / STORAGE_WAKE_INTERVAL_MS / STORAGE_BALANCE_DURATION_MS / socPercent / coulombCountAh - Batch field write; BMS voltage and SOC calculations use these as divisors (Risk: High)
-EEPROMSettings::resetFaultLog()         → eepromdata.faultLog[5]                                                - Array memset; second task reading faultLog mid-clear gets partially zeroed entries (Risk: Medium)
+##### oh man... what a mess.....
+
+**No, Not exposed to second layer**  EEPROMSettings::load()                  → eepromdata (entire struct)                                            - Full struct write during load; second task reading any field mid-load gets partially old, partially new data (Risk: High)
+**No, Not exposed to second layer**  EEPROMSettings::save()                  → eepromdata (entire struct)                                            - Full struct read for EEPROM.put(); concurrent write from second task causes torn read to flash (Risk: High)
+**No, Not exposed to second layer**  EEPROMSettings::loadDefaults()          → eepromdata (multiple fields via three sub-calls)                      - Multi-field write across three functions; second task reading any threshold mid-reset gets inconsistent state (Risk: High)
+**No, Not exposed to second layer**  EEPROMSettings::resetSafetyThresholds() → eepromdata.OverVSetpoint / UnderVSetpoint / OverTSetpoint / UnderTSetpoint / balanceVoltage / balanceHyst / OVERCURRENT_THRESHOLD_A / CELL_FAULT_DEBOUNCE - Batch field write; safety thresholds must be updated atomically or runSafetyChecks() may use a mix of old and new limits (Risk: High)
+**No, Not exposed to second layer**  EEPROMSettings::resetAdditionalHardware() → eepromdata.prechargeEnabled / prechargeTimeoutMs / currentSensorPresent / currentSensorVbias / currentSensorVrange / currentSensorRatedAmps - Batch field write; contactor and SOC calculator depend on these being consistent (Risk: High)
+**No, Not exposed to second layer**  EEPROMSettings::resetBatteryConfig()    → eepromdata.parallelStrings / STORAGE_WAKE_INTERVAL_MS / STORAGE_BALANCE_DURATION_MS / socPercent / coulombCountAh - Batch field write; BMS voltage and SOC calculations use these as divisors (Risk: High)
+**No, Not exposed to second layer**  EEPROMSettings::resetFaultLog()         → eepromdata.faultLog[5]                                                - Array memset; second task reading faultLog mid-clear gets partially zeroed entries (Risk: Medium)
 
 BMSOverlord::runSafetyChecks()          → eepromdata.OverVSetpoint / UnderVSetpoint / OverTSetpoint / UnderTSetpoint / OVERCURRENT_THRESHOLD_A / CELL_FAULT_DEBOUNCE - Safety threshold reads spanning a full module×cell nested loop; thresholds must not change mid-check (Risk: High)
 BMSOverlord::handleStorageMode()        → eepromdata.STORAGE_WAKE_INTERVAL_MS / STORAGE_BALANCE_DURATION_MS    - Timer parameter reads; if changed by second task while a storage cycle is running the cycle length becomes undefined (Risk: Medium)

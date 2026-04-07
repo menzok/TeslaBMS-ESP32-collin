@@ -1,3 +1,12 @@
-Overlord needs new fault (contactor close fault)
+Contactor close fail only on high current, otherwise add fault to overlord...Otherwise timeout and close.
+
+Remove restore all defaults menu.  (so can keep reset fault log and not have anouther boot only reset on invalid eeprom.)
+OR create boot only reset all... either way works, so long as reset fault log is not reset with restore all defaults.
+Same with Columb counter and SOC.....
+
+Core logic change... need to halt contactor close on eeprom load fault, require manual user reset. (dont run with invalid data!)
+
+BMSOverlord::requestStartup()  and shutdown can be merged into a flipflop.
+
 
 protect ALL data reads with mutex... for dual core layer communication with other devices (wifi, bluetooth, SerialMenu, ect)
