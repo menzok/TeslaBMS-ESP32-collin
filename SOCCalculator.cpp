@@ -183,7 +183,7 @@ float SOCCalculator::_readCurrentAmps() const {
     // Apply zero offset captured at boot to cancel sensor + ADC bias
     float vSensor = _adcToVoltage(sum / SOC_ADC_OVERSAMPLE)
         - currentSensorZeroOffsetV
-        - currentSensorAdaptiveOffsetV;
+        - _currentSensorAdaptiveOffsetV;
 
     // Scale by measure range (110% of rated current per QN-C15S datasheet)
     float measureRangeAmps = (float)eepromdata.currentSensorRatedAmps * 1.1f;

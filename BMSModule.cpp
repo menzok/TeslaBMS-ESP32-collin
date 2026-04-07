@@ -258,7 +258,7 @@ int BMSModule::getAddress()
     return moduleAddress;
 }
 
-bool BMSModule::isExisting()
+bool BMSModule::isExisting() const
 {
     return exists;
 }

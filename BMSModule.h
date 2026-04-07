@@ -27,7 +27,7 @@ public:
     uint8_t getCUVCells();
     void setAddress(int newAddr);
     int getAddress();
-    bool isExisting();
+    bool isExisting() const;
     void setExists(bool ex);
     void balanceCells();
     uint8_t getBalancingState(int cell);
