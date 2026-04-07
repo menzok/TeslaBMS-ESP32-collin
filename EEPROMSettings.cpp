@@ -96,8 +96,6 @@ void EEPROMSettings::resetBatteryConfig()
     eepromdata.parallelStrings = DEFAULT_PARALLEL_STRINGS;
     eepromdata.STORAGE_WAKE_INTERVAL_MS = DEFAULT_STORAGE_WAKE_INTERVAL_MS;
     eepromdata.STORAGE_BALANCE_DURATION_MS = DEFAULT_STORAGE_BALANCE_DURATION_MS;
-    eepromdata.socPercent = DEFAULT_SOC_PERCENT;
-    eepromdata.coulombCountAh = DEFAULT_COULOMB_COUNT_AH;
     save();
 }
 
