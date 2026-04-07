@@ -4,7 +4,7 @@
 #include <EEPROM.h>
 
 // ====================== EEPROM Version ======================
-#define EEPROM_VERSION      0x12
+#define EEPROM_VERSION      0x13
 
 // ====================== Default Settings ======================
 // These defaults prioritize safety, longevity, and real-world solar/off-grid usage with Tesla modules

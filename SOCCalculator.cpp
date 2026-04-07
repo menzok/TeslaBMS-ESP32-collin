@@ -19,8 +19,10 @@ SOCCalculator::SOCCalculator()
 // ─────────────────────────────────────────────────────────────────────────────
 void SOCCalculator::begin()
 {
-    _cellsInSeries = (int)(bms.getNumberOfModules() / eepromdata.parallelStrings) * 6;
-	_packCapacityAh = (float)eepromdata.parallelStrings * 22.0f; // 22Ah per string for Tesla 18650 modules - adjust if using different cells
+    uint8_t strings = (eepromdata.parallelStrings > 0) ? eepromdata.parallelStrings : 1;
+    _cellsInSeries  = (int)(bms.getNumberOfModules() / strings) * 6;
+    if (_cellsInSeries == 0) _cellsInSeries = 1;   // prevent /0 in update()
+    _packCapacityAh = (float)strings * 22.0f; // 22Ah per string for Tesla 18650 modules - adjust if using different cells
     _fullConfirmTicks = 0;
     _emptyConfirmTicks = 0;
     _lastUpdateMs = millis();
@@ -151,8 +153,9 @@ void SOCCalculator::update()
 
         // Only trim if error is consistent and meaningful
         if (fabsf(socError) > 0.3f) {
-            // Very slow adjustment (~0.0003 V per second at 1 Hz)
-            _currentSensorAdaptiveOffsetV += 0.0003f * socError;
+            // Very slow adjustment (~0.0003 V per second at 1 Hz), clamped to ±0.1 V
+            _currentSensorAdaptiveOffsetV = constrain(
+                _currentSensorAdaptiveOffsetV + 0.0003f * socError, -0.1f, 0.1f);
         }
     }
 }

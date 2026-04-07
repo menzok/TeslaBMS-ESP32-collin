@@ -45,7 +45,8 @@ private:
     // Timers
     uint32_t lastUpdateMs = 0;
     uint32_t lastStorageWakeMs = 0;
-    uint32_t storageBalanceEndMs = 0;
+    uint32_t storageBalanceStartMs = 0;
+    uint32_t lastFaultSaveMs = 0;
     bool balancingActive = false;
 
     // Watchdog

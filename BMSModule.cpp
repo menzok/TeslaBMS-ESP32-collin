@@ -11,8 +11,6 @@
 #include "BMSUtil.h"
 #include "Logger.h"
 
-extern EEPROMData eepromdata;
-
 BMSModule::BMSModule()      // Constructor for modules init to 0.
 {
     for (int i = 0; i < 6; i++)

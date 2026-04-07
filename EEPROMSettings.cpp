@@ -7,6 +7,21 @@
 
 EEPROMData eepromdata;
 
+// CRC-8 (poly 0x07, init 0x00) over every byte of eepromdata except the checksum field itself.
+// The checksum field sits at byte offset 1; we cover [0] and [2..sizeof-1].
+static uint8_t calcEEPROMChecksum()
+{
+    const uint8_t* p = (const uint8_t*)&eepromdata;
+    uint8_t crc = 0;
+    for (size_t i = 0; i < sizeof(EEPROMData); i++) {
+        if (i == 1) continue;   // skip the checksum byte itself
+        crc ^= p[i];
+        for (int b = 0; b < 8; b++)
+            crc = (crc & 0x80) ? (uint8_t)((crc << 1) ^ 0x07) : (uint8_t)(crc << 1);
+    }
+    return crc;
+}
+
 void EEPROMSettings::loadDefaults()
 {
     Logger::console("Loading factory defaults...");
@@ -25,10 +40,11 @@ void EEPROMSettings::loadDefaults()
 
 void EEPROMSettings::load()
 {
+    EEPROM.begin(sizeof(EEPROMData));
     EEPROM.get(0, eepromdata);
 
     if (eepromdata.version != EEPROM_VERSION ||
-        eepromdata.checksum != (eepromdata.version + 42))
+        eepromdata.checksum != calcEEPROMChecksum())
     {
         Logger::console("EEPROM invalid or empty - Resetting to factory defaults");
         memset(&eepromdata, 0, sizeof(EEPROMData));
@@ -43,7 +59,7 @@ void EEPROMSettings::load()
 
 void EEPROMSettings::save()
 {
-    eepromdata.checksum = eepromdata.version + 42;
+    eepromdata.checksum = calcEEPROMChecksum();
     EEPROM.put(0, eepromdata);
     EEPROM.commit();
 
@@ -80,6 +96,8 @@ void EEPROMSettings::resetBatteryConfig()
     eepromdata.parallelStrings = DEFAULT_PARALLEL_STRINGS;
     eepromdata.STORAGE_WAKE_INTERVAL_MS = DEFAULT_STORAGE_WAKE_INTERVAL_MS;
     eepromdata.STORAGE_BALANCE_DURATION_MS = DEFAULT_STORAGE_BALANCE_DURATION_MS;
+    eepromdata.socPercent = DEFAULT_SOC_PERCENT;
+    eepromdata.coulombCountAh = DEFAULT_COULOMB_COUNT_AH;
     save();
 }
 

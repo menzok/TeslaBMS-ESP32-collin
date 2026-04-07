@@ -4,9 +4,6 @@
 #include "Logger.h"
 #include "EEPROMSettings.h"
 
-
-extern EEPROMData eepromdata;
-
 BMSModuleManager::BMSModuleManager()
 {
     for (int i = 1; i <= MAX_MODULE_ADDR; i++) {
@@ -263,6 +260,7 @@ float BMSModuleManager::getAvgTemperature()
     {
         if (modules[x].isExisting()) avg += modules[x].getAvgTemp();
     }
+    if (numFoundModules == 0) return 0.0f;
     avg = avg / (float)numFoundModules;
 
     return avg;
@@ -275,6 +273,7 @@ float BMSModuleManager::getAvgCellVolt()
     {
         if (modules[x].isExisting()) avg += modules[x].getAverageV();
     }
+    if (numFoundModules == 0) return 0.0f;
     avg = avg / (float)numFoundModules;
 
     return avg;
@@ -487,16 +486,13 @@ ModuleSummary BMSModuleManager::getModuleSummary(int module)
     s.soc = (uint8_t)eepromdata.socPercent;
 
     int temp = (int)modules[module].getAvgTemp() + 40;
-    if (temp < 0) temp = 0;
-    s.avgTemp = (int8_t)temp;
+    s.avgTemp = (int8_t)constrain(temp, -128, 127);
 
     temp = (int)modules[module].getLowTemp() + 40;
-    if (temp < 0) temp = 0;
-    s.minTemp = (int8_t)temp;
+    s.minTemp = (int8_t)constrain(temp, -128, 127);
 
     temp = (int)modules[module].getHighTemp() + 40;
-    if (temp < 0) temp = 0;
-    s.maxTemp = (int8_t)temp;
+    s.maxTemp = (int8_t)constrain(temp, -128, 127);
 
     return s;
 }
@@ -510,7 +506,7 @@ CellDetails BMSModuleManager::getCellDetails(int module, int cell)
     c.lowestCellVolt = modules[module].getLowestCellVolt(cell);
 
     int temp = modules[module].getHighTemp() + 40;
-    c.highTemp = (int8_t)temp;
+    c.highTemp = (int8_t)constrain(temp, -128, 127);
 
     c.faultBits = 0;
 
@@ -520,4 +516,10 @@ CellDetails BMSModuleManager::getCellDetails(int module, int cell)
 int BMSModuleManager::getNumberOfModules() const
 {
     return numFoundModules;
+}
+
+bool BMSModuleManager::moduleExists(int address) const
+{
+    if (address < 1 || address > MAX_MODULE_ADDR) return false;
+    return modules[address].isExisting();
 }

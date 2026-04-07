@@ -29,7 +29,7 @@ void setup() {
 
 void loop() {
    
-    if (millis() > (lastUpdate + 1000)) {
+    if (millis() - lastUpdate >= 1000UL) {
         lastUpdate = millis();
 		Overlord.update();
 
