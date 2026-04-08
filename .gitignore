@@ -9,6 +9,9 @@
 *.user
 *.userosscache
 *.sln.docstates
+Mutex_Identification_List.md
+Todo.txt
+
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
