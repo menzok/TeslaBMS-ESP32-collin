@@ -49,7 +49,7 @@ void ContactorController::update() {
         }
         else if (eepromdata.currentSensorPresent) {
             float current = socCalculator.getPackCurrentAmps();
-            if (fabsf(current) < 0.5f) {
+            if (fabsf(current) < 0.5f || (now - prechargeStartTime >= eepromdata.prechargeTimeoutMs)) {
                 prechargeDone = true;
             }
         }

@@ -25,7 +25,7 @@
                                             ║ • PRECHARGE /        ║  ║ • coulomb + OCV      ║  ║ • balanceCells()     ║  ║ • handleContactor-   ║
                                             ║   CONNECTED / FAULT  ║  ║                      ║  ║ • findBoards()       ║  ║   Logic()            ║
                                             ╚══════════════════════╝  ╚══════════════════════╝  ║ • renumberBoardIDs() ║  ║ • handleStorageMode()║
-                                                                                                    |   ╚══════════════════════╝
+                                                                                                ╚══════════════════════╝  ╚══════════════════════╝
                                       +-------------------------------------------------------------+
                                       │
                                       ▼
