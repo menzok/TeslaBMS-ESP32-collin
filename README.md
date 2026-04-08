@@ -72,5 +72,3 @@ This is an active development fork focused on stability, correctness, and prepar
 Contributions, issues, and feature requests are welcome.
 
 ---
-
-**Original Author:** collin80  
