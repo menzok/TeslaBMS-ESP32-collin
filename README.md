@@ -1,6 +1,6 @@
 # TeslaBMS-ESP32
 
-**ESP32 port of the original TeslaBMS project**
+**ESP32 port of the original TeslaBMS project** (Because i looked at the SIMP BMS Code and cried)
 
 This firmware turns an ESP32 into a full-featured Battery Management System (BMS) master controller for **Tesla Model S/X battery modules** (6-cell 18650/2170 modules with the BQ76PL455A-Q1 chip).
 
@@ -46,7 +46,7 @@ Further detailed documentation is available in the repository:
 
 ### Planned features
 - Victron OS integration layer on core 0.  
-- some small todo's in todo file....
+
 
 ---
 
