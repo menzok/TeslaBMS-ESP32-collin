@@ -67,7 +67,7 @@ from vedbus import VeDbusService   # noqa: E402
 # ─────────────────────────────────────────────────────���───────────────────────
 
 # Nominal Ah per series module in a Tesla pack
-AH_PER_MODULE = 22.0
+AH_PER_MODULE = 232.0
 
 # Float voltage offset below the EEPROM overvoltage threshold.
 # e.g. OV=4.25 V → float target = 4.25 - 0.10 = 4.15 V per cell.
