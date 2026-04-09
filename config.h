@@ -16,6 +16,12 @@ extern HardwareSerial Serial2;
 #define BMS_RX_PIN          16      // RX pin for Tesla BMS modules 
 #define BMS_TX_PIN          17      // TX pin for Tesla BMS modules
 
+//External communication details (to external microcontroller, CAN adapter, etc.)
+#define EXTERNAL_COMM_SERIAL      Serial1
+#define EXTERNAL_COMM_BAUD        115200
+#define EXTERNAL_COMM_RX_PIN      21     
+#define EXTERNAL_COMM_TX_PIN      22
+
 // ====================== HARDWARE PINS & FEATURES ======================
 // Configurable pins and enable/disable flags for optional hardware features.
 #define PRECHARGE_RELAY_PIN         25     // GPIO for small pre-charge relay
