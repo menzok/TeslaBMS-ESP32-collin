@@ -565,7 +565,7 @@ class TeslaBMSSerial:
                      + struct.pack("<H", crc16_modbus(cmd_byte)))
 
         for attempt in range(1, CMD_RETRIES + 1):
-            _write_error_port = None   # set if a write error forces inline disconnect
+            write_error_port = None   # set if a write error forces inline disconnect
 
             with self._lock:
                 if not self._ser or not self._ser.is_open:
@@ -583,14 +583,14 @@ class TeslaBMSSerial:
                         self._ser.close()
                     except Exception:
                         pass
-                    _write_error_port = self._port   # capture before clearing
+                    write_error_port = self._port   # capture before clearing
                     self._ser      = None
                     self._port     = None
                     self.connected = False
                     # fall through — lock is released, then we restart serial-starter below
 
                 # Read reply within the same lock — no gap where bytes can be interleaved
-                if _write_error_port is None:
+                if write_error_port is None:
                     try:
                         raw = self._ser.read(1)
                         if raw and raw[0] == FRAME_START_BYTE:
@@ -605,8 +605,8 @@ class TeslaBMSSerial:
                         log.error(f"send_command read error (attempt {attempt}): {exc}")
 
             # Re-enable serial-starter if we had a write error and cleared the port
-            if _write_error_port:
-                self._serial_starter_start(_write_error_port)
+            if write_error_port:
+                self._serial_starter_start(write_error_port)
                 return False
 
             log.warning(f"send_command(0x{cmd:02X}): no valid reply on attempt {attempt}/{CMD_RETRIES}")
