@@ -67,12 +67,12 @@ void ExternalCommsLayer::buildPayload(uint8_t* payload) {
     uint8_t contactorState = (uint8_t)contactor.getState();
 
     // ── EEPROM config — read fresh every frame ─────────────────────────────
-    uint16_t overV   = (uint16_t)round(eepromdata.OVERVOLTAGE           * 1000.0f); // 1 mV steps
-    uint16_t underV  = (uint16_t)round(eepromdata.UNDERVOLTAGE          * 1000.0f);
-    int8_t   overT   = (int8_t)  round(eepromdata.OVERTEMP);
-    int8_t   underT  = (int8_t)  round(eepromdata.UNDERTEMP);
+    uint16_t overV   = (uint16_t)round(eepromdata.OverVSetpoint  * 1000.0f); // 1 mV steps
+    uint16_t underV  = (uint16_t)round(eepromdata.UnderVSetpoint * 1000.0f);
+    int8_t   overT   = (int8_t)  round(eepromdata.OverTSetpoint);
+    int8_t   underT  = (int8_t)  round(eepromdata.UnderTSetpoint);
     uint8_t  modules = (uint8_t) bms.getNumberOfModules();
-    uint8_t  strings = (uint8_t) eepromdata.PARALLEL_STRINGS;
+    uint8_t  strings = (uint8_t) eepromdata.parallelStrings;
 
     // Overcurrent threshold — 0.1A resolution, uint16
     // eepromdata.OVERCURRENT_THRESHOLD_A is a float in Amps
