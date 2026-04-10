@@ -3,6 +3,11 @@
 #
 # ─────────────────────────────────────────────────────────────────────────────
 #  dbus-teslabms.py  —  Standalone Venus OS battery driver for TeslaBMS-ESP32
+#  Version 1.4.0
+#
+#  Protocol change: the ESP32 is now purely request/reply — it only transmits
+#  in response to a CMD 0x03 command and never sends unsolicited packets.
+#  The Pi drives all data requests via a periodic poll every POLL_INTERVAL_S.
 #
 #  Frame format (29 bytes total)
 #  ──────────────────────────────
@@ -86,8 +91,11 @@ DEFAULT_MAX_CHARGE_TEMP       = 45.0    # °C (charge inhibit above)
 DEFAULT_MIN_CHARGE_TEMP       = 5.0     # °C (charge inhibit below)
 
 # Timing
-STALE_TIMEOUT       = 2.5
-OFFLINE_TIMEOUT     = 15.0
+SERIAL_TIMEOUT_S    = 1.5    # extra headroom for ESP32 loop scheduling
+POLL_INTERVAL_S     = 2.0    # how often Pi sends CMD 0x03 to request data
+CMD_RETRIES         = 3      # number of attempts before declaring a command failed
+STALE_TIMEOUT       = 5.0    # flag data as stale if no frame received within this window
+OFFLINE_TIMEOUT     = 15.0   # flag as offline/cable-fault after this long with no frame
 BAUD_RATE           = 115200
 PUBLISH_INTERVAL_MS = 1000
 
@@ -314,12 +322,12 @@ class TeslaBMSSerial:
     """
     Background daemon thread that:
       1. Auto-detects and opens the ESP32 serial port.
-      2. Hunts for 0xAA start bytes and reads 29-byte frames.
-      3. Validates CRC-16/MODBUS.
+      2. Polls the ESP32 for data every POLL_INTERVAL_S seconds via CMD 0x03.
+      3. Validates CRC-16/MODBUS on all received frames.
       4. Decodes all 26 payload bytes into public attributes.
 
-    The main GLib thread reads these attributes every publish cycle.
-    send_command() is thread-safe via a lock on the serial port.
+    The ESP32 is purely reply-driven — it only transmits in response to a command.
+    send_command() retries up to CMD_RETRIES times before disconnecting.
     """
 
     def __init__(self):
@@ -359,6 +367,7 @@ class TeslaBMSSerial:
         self._stop_event           = threading.Event()
         self._thread               = None
         self._last_connect_attempt = 0.0
+        self._last_poll_time       = 0.0
 
     # ���── Derived pack limits ──────────────────────────────────────────────────
 
@@ -437,7 +446,7 @@ class TeslaBMSSerial:
 
         try:
             with self._lock:
-                self._ser      = serial.Serial(port, BAUD_RATE, timeout=1.2)
+                self._ser      = serial.Serial(port, BAUD_RATE, timeout=SERIAL_TIMEOUT_S)
                 self._port     = port
                 self.connected = True
             log.info(f"✅ Connected on {port}")
@@ -460,29 +469,61 @@ class TeslaBMSSerial:
     # ─── Command send ─────────────────────────────────────────────────────────
 
     def send_command(self, cmd: int) -> bool:
-        """Transmit a 4-byte command frame. Thread-safe."""
+        """Transmit a command frame and wait for a reply. Retries up to CMD_RETRIES times."""
         cmd_byte  = bytes([cmd])
         frame_out = (bytes([FRAME_START_BYTE])
                      + cmd_byte
                      + struct.pack("<H", crc16_modbus(cmd_byte)))
-        with self._lock:
-            if not self._ser or not self._ser.is_open:
-                log.warning(f"send_command(0x{cmd:02X}): not connected")
-                return False
-            try:
-                self._ser.write(frame_out)
-                log.info(f"→ CMD 0x{cmd:02X}")
-                return True
-            except Exception as exc:
-                log.error(f"send_command error: {exc}")
+
+        for attempt in range(1, CMD_RETRIES + 1):
+            with self._lock:
+                if not self._ser or not self._ser.is_open:
+                    log.warning(f"send_command(0x{cmd:02X}): not connected")
+                    return False
                 try:
-                    self._ser.close()
-                except Exception:
-                    pass
-                self._ser      = None
-                self._port     = None
-                self.connected = False
-                return False
+                    self._ser.write(frame_out)
+                    log.info(f"→ CMD 0x{cmd:02X} (attempt {attempt}/{CMD_RETRIES})")
+                except Exception as exc:
+                    log.error(f"send_command write error: {exc}")
+                    try:
+                        self._ser.close()
+                    except Exception:
+                        pass
+                    self._ser      = None
+                    self._port     = None
+                    self.connected = False
+                    return False
+
+            # Wait for reply frame
+            try:
+                with self._lock:
+                    if not self._ser or not self._ser.is_open:
+                        return False
+                    # Hunt for start byte
+                    raw = self._ser.read(1)
+
+                if raw and raw[0] == FRAME_START_BYTE:
+                    with self._lock:
+                        if not self._ser or not self._ser.is_open:
+                            return False
+                        rest = self._ser.read(PAYLOAD_LEN + 2)
+
+                    if len(rest) == PAYLOAD_LEN + 2:
+                        payload  = rest[:PAYLOAD_LEN]
+                        crc_rx   = struct.unpack("<H", rest[PAYLOAD_LEN:])[0]
+                        if crc16_modbus(payload) == crc_rx:
+                            self._parse_frame(payload)
+                            return True
+
+                log.warning(f"send_command(0x{cmd:02X}): no valid reply on attempt {attempt}/{CMD_RETRIES}")
+
+            except Exception as exc:
+                log.error(f"send_command read error (attempt {attempt}): {exc}")
+
+        # All retries exhausted
+        log.error(f"send_command(0x{cmd:02X}): failed after {CMD_RETRIES} attempts — disconnecting")
+        self._disconnect()
+        return False
 
     # ─── Frame parser ─────────────────────────────────────────────────────────
 
@@ -581,9 +622,10 @@ class TeslaBMSSerial:
                         break
 
                 if not found:
-                    age = time.time() - self.last_frame_time
-                    if self.last_frame_time > 0 and age > STALE_TIMEOUT:
-                        log.debug(f"No frame for {age:.1f}s — requesting data")
+                    now = time.time()
+                    if now - self._last_poll_time >= POLL_INTERVAL_S:
+                        self._last_poll_time = now
+                        log.debug("Polling ESP32 for data …")
                         self.send_command(EXT_CMD_SEND_DATA)
                     continue
 
@@ -642,7 +684,7 @@ def build_dbus_service(bus) -> VeDbusService:
 
     # ── Management / identity ─────────────────────────────────────────────────
     svc.add_path("/Mgmt/ProcessName",    __file__)
-    svc.add_path("/Mgmt/ProcessVersion", "1.3.0")
+    svc.add_path("/Mgmt/ProcessVersion", "1.4.0")
     svc.add_path("/Mgmt/Connection",     "USB Serial (auto-detect)")
     svc.add_path("/DeviceInstance",  1)
     svc.add_path("/ProductId",       0xBA77)
@@ -904,7 +946,7 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, vs: VenusSettings) -> bool:
 
 def main() -> None:
     log.info("=" * 62)
-    log.info("  TeslaBMS-ESP32 Venus OS driver v1.3 starting …")
+    log.info("  TeslaBMS-ESP32 Venus OS driver v1.4 starting …")
     log.info("=" * 62)
 
     DBusGMainLoop(set_as_default=True)

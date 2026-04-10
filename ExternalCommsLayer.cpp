@@ -126,18 +126,18 @@ void ExternalCommsLayer::sendPacket() {
 
 // ─── Command processor ────────────────────────────────────────────────────────
 
-bool ExternalCommsLayer::processIncomingCommand() {
-    if (EXTERNAL_COMM_SERIAL.available() < 4) return false;
+void ExternalCommsLayer::processIncomingCommand() {
+    if (EXTERNAL_COMM_SERIAL.available() < 4) return;
 
     uint8_t buf[4];
     EXTERNAL_COMM_SERIAL.readBytes(buf, 4);
 
-    if (buf[0] != 0xAA) return false;
+    if (buf[0] != 0xAA) return;
 
     // Validate CRC over the single command byte only
     uint16_t calcCRC = calculateCRC16(&buf[1], 1);
     uint16_t rxCRC   = buf[2] | (buf[3] << 8);
-    if (calcCRC != rxCRC) return false;
+    if (calcCRC != rxCRC) return;
 
     uint8_t cmd = buf[1];
 
@@ -149,16 +149,12 @@ bool ExternalCommsLayer::processIncomingCommand() {
     // EXT_CMD_SEND_DATA: no special action, fall through to sendPacket()
 
     sendPacket();
-    return true;
 }
 
 // ─── Main update ──────────────────────────────────────────────────────────────
 
 void ExternalCommsLayer::update() {
-    bool hadCommand = processIncomingCommand();
-    if (!hadCommand) {
-        sendPacket();   // unsolicited heartbeat
-    }
+    processIncomingCommand();   // only reply when asked — no unsolicited sends
 }
 
 // Global instance

@@ -54,7 +54,7 @@ private:
     uint16_t calculateCRC16(const uint8_t* data, size_t length);
     void buildPayload(uint8_t* payload);   // fills 26-byte payload
     void sendPacket();                     // transmits full 29-byte frame
-    bool processIncomingCommand();
+    void processIncomingCommand();
 
     uint8_t txBuffer[EXT_FRAME_LEN];
 };
