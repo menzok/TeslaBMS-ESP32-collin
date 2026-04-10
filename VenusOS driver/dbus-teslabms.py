@@ -94,6 +94,7 @@ DEFAULT_MIN_CHARGE_TEMP       = 5.0     # °C (charge inhibit below)
 SERIAL_TIMEOUT_S    = 1.5    # extra headroom for ESP32 loop scheduling
 POLL_INTERVAL_S     = 2.0    # how often Pi sends CMD 0x03 to request data
 CMD_RETRIES         = 3      # number of attempts before declaring a command failed
+CMD_RETRY_DELAY_S   = 1.0    # pause between retries — lets the ESP32 drain any converter noise before the next command arrives
 STALE_TIMEOUT       = 5.0    # flag data as stale if no frame received within this window
 OFFLINE_TIMEOUT     = 15.0   # flag as offline/cable-fault after this long with no frame
 BAUD_RATE           = 115200
@@ -530,6 +531,8 @@ class TeslaBMSSerial:
                             return True
 
                 log.warning(f"send_command(0x{cmd:02X}): no valid reply on attempt {attempt}/{CMD_RETRIES}")
+                if attempt < CMD_RETRIES:
+                    time.sleep(CMD_RETRY_DELAY_S)   # let ESP32 drain garbage before next attempt
 
             except Exception as exc:
                 log.error(f"send_command read error (attempt {attempt}): {exc}")
