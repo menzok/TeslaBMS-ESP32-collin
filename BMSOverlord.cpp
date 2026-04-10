@@ -7,14 +7,14 @@ void BMSOverlord::init() {
     Serial.println("BMSOverlord: Initializing...");
     // Enable ESP32 task watchdog (15 s for init)
     esp_task_wdt_config_t twdt_config = {
-        .timeout_ms = 15000,
+        .timeout_ms = 30000,
         .idle_core_mask = 0,
         .trigger_panic = true
     };
     esp_task_wdt_init(&twdt_config);
     esp_task_wdt_add(NULL);
 
-    Serial.println("BMSOverlord: Init complete - watchdog enabled (15 s)");
+    Serial.println("BMSOverlord: Init complete - watchdog enabled (30 s)");
 
     contactor.init();
     SERIALCONSOLE.println("Scanning for connected BMS boards..."); //Scan for modules and print results
@@ -36,13 +36,13 @@ void BMSOverlord::update() {
 
     if (!watchdogTightened && ++successfulUpdates >= 5) {
         esp_task_wdt_config_t twdt_tight = {
-            .timeout_ms = 1000,
+            .timeout_ms = 5000,
             .idle_core_mask = 0,
             .trigger_panic = true
         };
         esp_task_wdt_reconfigure(&twdt_tight);
         watchdogTightened = true;
-        Serial.println("BMSOverlord: Watchdog tightened to 1 second....GET OVER HERE");
+        Serial.println("BMSOverlord: Watchdog tightened to 5 second....GET OVER HERE");
 	}
 
     lastSuccessfulModules = bms.getAllVoltTemp();

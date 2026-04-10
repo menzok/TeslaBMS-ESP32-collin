@@ -61,7 +61,7 @@ from gi.repository import GLib
 import dbus
 
 # ── velib_python ──────────────────────────────────────────────────────────────
-VELIB_PATH = "/opt/victronenergy/dbus-serialbattery/ext/velib_python"
+VELIB_PATH = "data/apps/dbus-serialbattery/ext/velib_python"
 sys.path.insert(1, VELIB_PATH)
 from vedbus import VeDbusService           # noqa: E402
 from settingsdevice import SettingsDevice  # noqa: E402

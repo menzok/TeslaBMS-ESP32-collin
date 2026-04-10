@@ -66,12 +66,14 @@ info "Checking environment …"
 
 # Verify Venus OS version ≥ 3.00
 VENUS_VERSION_FILE="/opt/victronenergy/version"
-if [[ -f "$VENUS_VERSION_FILE" ]]; then
-    VENUS_VER=$(head -n 1 "$VENUS_VERSION_FILE")
+if [ -f "$VENUS_VERSION_FILE" ]; then
+    VENUS_VER=$(cat "$VENUS_VERSION_FILE" | tr -d '\n\r')
     info "Detected Venus OS version: ${VENUS_VER}"
-    # Extract major version number (e.g. "v3.40" → 3)
-    MAJOR=$(echo "$VENUS_VER" | grep -oP '(?<=v)\d+' | head -1)
-    if [[ -z "$MAJOR" || "$MAJOR" -lt 3 ]]; then
+
+    # Extract major version number (e.g. "v3.71" → 3)
+    MAJOR=$(echo "$VENUS_VER" | tr -d "v" | cut -d. -f1)
+
+    if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 3 ]; then
         error "Venus OS v3.00 or newer is required. Found: ${VENUS_VER}"
     fi
 else
