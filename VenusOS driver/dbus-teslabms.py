@@ -91,7 +91,8 @@ DEFAULT_MAX_CHARGE_TEMP       = 45.0    # °C (charge inhibit above)
 DEFAULT_MIN_CHARGE_TEMP       = 5.0     # °C (charge inhibit below)
 
 # Timing
-SERIAL_TIMEOUT_S    = 3.5    # must exceed worst-case ESP32 response latency (1 s loop + Overlord.update() duration)
+SERIAL_TIMEOUT_S    = 3.5    # read timeout inside send_command — generous margin above ESP32 response latency
+PROBE_TIMEOUT_S     = 1.0    # per-port read timeout used only during port discovery (ESP32 responds in <10 ms)
 POLL_INTERVAL_S     = 2.0    # how often Pi sends CMD 0x03 to request data
 CMD_RETRIES         = 3      # number of attempts before declaring a command failed
 CMD_RETRY_DELAY_S   = 1.0    # pause between retries — lets the ESP32 drain any converter noise before the next command arrives
@@ -403,7 +404,7 @@ class TeslaBMSSerial:
         try:
             # dsrdtr=False / rtscts=False: keep DTR and RTS de-asserted so the
             # USB-UART bridge does not trigger the ESP32 auto-reset circuit.
-            ser = serial.Serial(port, BAUD_RATE, timeout=SERIAL_TIMEOUT_S,
+            ser = serial.Serial(port, BAUD_RATE, timeout=PROBE_TIMEOUT_S,
                                 dsrdtr=False, rtscts=False)
             ser.dtr = False   # explicit: do not pull EN low via auto-reset RC
             ser.rts = False
@@ -412,20 +413,17 @@ class TeslaBMSSerial:
             time.sleep(0.1)
             cmd   = bytes([EXT_CMD_SEND_DATA])
             frame = bytes([FRAME_START_BYTE]) + cmd + struct.pack("<H", crc16_modbus(cmd))
-            for attempt in range(1, CMD_RETRIES + 1):
-                ser.reset_input_buffer()          # flush stale bytes before each send
-                ser.write(frame)
-                time.sleep(2.5)                   # wait for ESP32 loop tick + reply margin
-                data = ser.read(FRAME_LEN)
-                if len(data) >= FRAME_LEN and data[0] == FRAME_START_BYTE:
-                    payload = data[1: 1 + PAYLOAD_LEN]
-                    crc_rx  = struct.unpack("<H", data[1 + PAYLOAD_LEN: FRAME_LEN])[0]
-                    if crc16_modbus(payload) == crc_rx:
-                        ser.close()
-                        log.info(f"✅ TeslaBMS-ESP32 confirmed on {port}")
-                        return True
-                log.debug(f"  {port}: no valid reply (attempt {attempt}/{CMD_RETRIES})")
+            ser.reset_input_buffer()
+            ser.write(frame)
+            data = ser.read(FRAME_LEN)
             ser.close()
+            if len(data) >= FRAME_LEN and data[0] == FRAME_START_BYTE:
+                payload = data[1: 1 + PAYLOAD_LEN]
+                crc_rx  = struct.unpack("<H", data[1 + PAYLOAD_LEN: FRAME_LEN])[0]
+                if crc16_modbus(payload) == crc_rx:
+                    log.info(f"✅ TeslaBMS-ESP32 confirmed on {port}")
+                    return True
+            log.debug(f"  {port}: no valid reply")
         except Exception as exc:
             log.debug(f"  {port}: {exc}")
         return False
@@ -495,8 +493,10 @@ class TeslaBMSSerial:
                 if not self._ser or not self._ser.is_open:
                     log.warning(f"send_command(0x{cmd:02X}): not connected")
                     return False
+
+                # Write
                 try:
-                    self._ser.reset_input_buffer()   # discard any stale reply from a previous timed-out attempt
+                    self._ser.reset_input_buffer()
                     self._ser.write(frame_out)
                     log.info(f"→ CMD 0x{cmd:02X} (attempt {attempt}/{CMD_RETRIES})")
                 except Exception as exc:
@@ -510,33 +510,23 @@ class TeslaBMSSerial:
                     self.connected = False
                     return False
 
-            # Wait for reply frame
-            try:
-                with self._lock:
-                    if not self._ser or not self._ser.is_open:
-                        return False
-                    # Hunt for start byte
+                # Read reply within the same lock — no gap where bytes can be interleaved
+                try:
                     raw = self._ser.read(1)
-
-                if raw and raw[0] == FRAME_START_BYTE:
-                    with self._lock:
-                        if not self._ser or not self._ser.is_open:
-                            return False
+                    if raw and raw[0] == FRAME_START_BYTE:
                         rest = self._ser.read(PAYLOAD_LEN + 2)
+                        if len(rest) == PAYLOAD_LEN + 2:
+                            payload  = rest[:PAYLOAD_LEN]
+                            crc_rx   = struct.unpack("<H", rest[PAYLOAD_LEN:])[0]
+                            if crc16_modbus(payload) == crc_rx:
+                                self._parse_frame(payload)
+                                return True
+                except Exception as exc:
+                    log.error(f"send_command read error (attempt {attempt}): {exc}")
 
-                    if len(rest) == PAYLOAD_LEN + 2:
-                        payload  = rest[:PAYLOAD_LEN]
-                        crc_rx   = struct.unpack("<H", rest[PAYLOAD_LEN:])[0]
-                        if crc16_modbus(payload) == crc_rx:
-                            self._parse_frame(payload)
-                            return True
-
-                log.warning(f"send_command(0x{cmd:02X}): no valid reply on attempt {attempt}/{CMD_RETRIES}")
-                if attempt < CMD_RETRIES:
-                    time.sleep(CMD_RETRY_DELAY_S)   # let ESP32 drain garbage before next attempt
-
-            except Exception as exc:
-                log.error(f"send_command read error (attempt {attempt}): {exc}")
+            log.warning(f"send_command(0x{cmd:02X}): no valid reply on attempt {attempt}/{CMD_RETRIES}")
+            if attempt < CMD_RETRIES:
+                time.sleep(CMD_RETRY_DELAY_S)
 
         # All retries exhausted
         log.error(f"send_command(0x{cmd:02X}): failed after {CMD_RETRIES} attempts — disconnecting")
@@ -617,6 +607,12 @@ class TeslaBMSSerial:
             return False
 
     # ─── Background reader loop ───────────────────────────────────────────────
+    #
+    # The ESP32 is purely request-reply — it never sends unsolicited frames.
+    # This loop simply sleeps until the next poll interval, sends CMD 0x03,
+    # and lets send_command handle the read, retry, and disconnect logic.
+    # No "hunt for start byte" is needed or correct for this protocol.
+    #
 
     def _reader_loop(self) -> None:
         log.info("Reader thread started.")
@@ -628,44 +624,12 @@ class TeslaBMSSerial:
                 continue
 
             try:
-                # Hunt for start byte
-                found = False
-                for _ in range(FRAME_LEN * 4):
-                    with self._lock:
-                        raw = self._ser.read(1) if self._ser and self._ser.is_open else b""
-                    if not raw:
-                        break
-                    if raw[0] == FRAME_START_BYTE:
-                        found = True
-                        break
-
-                if not found:
-                    now = time.time()
-                    if now - self._last_poll_time >= POLL_INTERVAL_S:
-                        self._last_poll_time = now
-                        log.debug("Polling ESP32 for data …")
-                        self.send_command(EXT_CMD_SEND_DATA)
-                    continue
-
-                # Read payload + CRC
-                remainder = PAYLOAD_LEN + 2   # 28
-                with self._lock:
-                    rest = self._ser.read(remainder) if self._ser and self._ser.is_open else b""
-
-                if len(rest) != remainder:
-                    log.warning(f"Short frame: got {len(rest)}/{remainder} bytes")
-                    continue
-
-                # Validate CRC
-                payload  = rest[:PAYLOAD_LEN]
-                crc_rx   = struct.unpack("<H", rest[PAYLOAD_LEN:])[0]
-                crc_calc = crc16_modbus(payload)
-
-                if crc_calc != crc_rx:
-                    log.warning(f"CRC mismatch: calc=0x{crc_calc:04X} rx=0x{crc_rx:04X}")
-                    continue
-
-                self._parse_frame(payload)
+                now  = time.time()
+                wait = POLL_INTERVAL_S - (now - self._last_poll_time)
+                if wait > 0:
+                    time.sleep(wait)
+                self._last_poll_time = time.time()
+                self.send_command(EXT_CMD_SEND_DATA)
 
             except serial.SerialException as exc:
                 log.error(f"Serial error: {exc} — reconnecting …")
