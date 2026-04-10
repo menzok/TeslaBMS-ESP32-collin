@@ -33,9 +33,8 @@ void loop() {
     if (millis() - lastUpdate >= 1000UL) {
         lastUpdate = millis();
 		Overlord.update();
-        ExternalComms.update();
-        
     }
+    ExternalComms.update();  // process commands every loop tick — not gated behind 1 s timer
 	menu.loop();
     
 }

@@ -91,7 +91,7 @@ DEFAULT_MAX_CHARGE_TEMP       = 45.0    # °C (charge inhibit above)
 DEFAULT_MIN_CHARGE_TEMP       = 5.0     # °C (charge inhibit below)
 
 # Timing
-SERIAL_TIMEOUT_S    = 1.5    # extra headroom for ESP32 loop scheduling
+SERIAL_TIMEOUT_S    = 3.5    # must exceed worst-case ESP32 response latency (1 s loop + Overlord.update() duration)
 POLL_INTERVAL_S     = 2.0    # how often Pi sends CMD 0x03 to request data
 CMD_RETRIES         = 3      # number of attempts before declaring a command failed
 CMD_RETRY_DELAY_S   = 1.0    # pause between retries — lets the ESP32 drain any converter noise before the next command arrives
@@ -496,6 +496,7 @@ class TeslaBMSSerial:
                     log.warning(f"send_command(0x{cmd:02X}): not connected")
                     return False
                 try:
+                    self._ser.reset_input_buffer()   # discard any stale reply from a previous timed-out attempt
                     self._ser.write(frame_out)
                     log.info(f"→ CMD 0x{cmd:02X} (attempt {attempt}/{CMD_RETRIES})")
                 except Exception as exc:
