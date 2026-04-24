@@ -207,16 +207,10 @@ void ExternalCommsLayer::processIncomingCommand() {
 
     if (cmd == EXT_CMD_SEND_DATA) {
         // Data-request frame: 3 payload bytes + 2 CRC bytes still to come (5 total).
-        // At 115200 baud the full 7-byte frame arrives in < 1 ms, so a brief
-        // spin-wait is safe and far shorter than the main-loop period.
-        uint32_t deadline = millis() + 10;
-        while (EXTERNAL_COMM_SERIAL.available() < 5 && (int32_t)(millis() - deadline) < 0) {
-            /* busy-wait ≤ 10 ms */
-        }
-        if (EXTERNAL_COMM_SERIAL.available() < 5) return;  // timeout — discard
-
+        // readBytes() honours the serial timeout so we never spin indefinitely.
         uint8_t data[5];
-        EXTERNAL_COMM_SERIAL.readBytes(data, 5);
+        if (EXTERNAL_COMM_SERIAL.readBytes(data, 5) < 5) return;  // timeout — discard
+
         // data[0..1] = shunt current × 10 (int16 BE), data[2] = staleness
         // data[3..4] = CRC little-endian over [cmd, data[0], data[1], data[2]]
         uint8_t crcInput[4] = { cmd, data[0], data[1], data[2] };
@@ -234,14 +228,8 @@ void ExternalCommsLayer::processIncomingCommand() {
     }
 
     // Control command (SHUTDOWN / STARTUP): 2 CRC bytes follow
-    uint32_t deadline = millis() + 10;
-    while (EXTERNAL_COMM_SERIAL.available() < 2 && (int32_t)(millis() - deadline) < 0) {
-        /* busy-wait ≤ 10 ms */
-    }
-    if (EXTERNAL_COMM_SERIAL.available() < 2) return;
-
     uint8_t crcBytes[2];
-    EXTERNAL_COMM_SERIAL.readBytes(crcBytes, 2);
+    if (EXTERNAL_COMM_SERIAL.readBytes(crcBytes, 2) < 2) return;  // timeout — discard
     uint16_t calcCRC = calculateCRC16(&cmd, 1);
     uint16_t rxCRC   = (uint16_t)crcBytes[0] | ((uint16_t)crcBytes[1] << 8);
     if (calcCRC != rxCRC) return;

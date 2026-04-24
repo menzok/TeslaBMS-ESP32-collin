@@ -255,19 +255,32 @@ class VenusSettings:
         self._cache[setting] = new_value
 
     @property
-    def max_charge_current(self):    return float(self._cache["MaxChargeCurrent"])
+    def max_charge_current(self):
+        return float(self._cache["MaxChargeCurrent"])
+
     @property
-    def max_discharge_current(self): return float(self._cache["MaxDischargeCurrent"])
+    def max_discharge_current(self):
+        return float(self._cache["MaxDischargeCurrent"])
+
     @property
-    def absorption_voltage(self):    return float(self._cache["AbsorptionVoltage"])
+    def absorption_voltage(self):
+        return float(self._cache["AbsorptionVoltage"])
+
     @property
-    def float_voltage(self):         return float(self._cache["FloatVoltage"])
+    def float_voltage(self):
+        return float(self._cache["FloatVoltage"])
+
     @property
-    def tail_current(self):          return float(self._cache["TailCurrent"])
+    def tail_current(self):
+        return float(self._cache["TailCurrent"])
+
     @property
-    def max_charge_temp(self):       return float(self._cache["MaxChargeTemp"])
+    def max_charge_temp(self):
+        return float(self._cache["MaxChargeTemp"])
+
     @property
-    def min_charge_temp(self):       return float(self._cache["MinChargeTemp"])
+    def min_charge_temp(self):
+        return float(self._cache["MinChargeTemp"])
 
     def effective_max_charge_current(self, overcurrent_threshold: float) -> float:
         return min(self.max_charge_current, overcurrent_threshold)
