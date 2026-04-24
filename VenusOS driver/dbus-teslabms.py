@@ -623,6 +623,13 @@ class TeslaBMSSerial:
             return True
         return (time.time() - self.last_frame_time) > OFFLINE_TIMEOUT
 
+    @property
+    def data_fresh(self) -> bool:
+        """True if a valid frame was received within STALE_TIMEOUT seconds."""
+        if self.last_frame_time == 0:
+            return False
+        return (time.time() - self.last_frame_time) <= STALE_TIMEOUT
+
     def alarm_level(self, bit: int) -> int:
         return ALARM_ALARM if (self.alarm_flags & bit) else ALARM_OK
 
@@ -1342,10 +1349,40 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, vs: VenusSettings) -> bool:
     svc["/Connected"]                 = 1 if online else 0
     svc["/System/NrOfModulesOnline"]  = 1 if online else 0
     svc["/System/NrOfModulesOffline"] = 0 if online else 1
-    svc["/Alarms/BmsCable"]           = ALARM_OK if online else ALARM_WARNING
+    svc["/Alarms/BmsCable"]           = ALARM_OK if online else ALARM_ALARM
 
     if not online:
-        svc["/State"] = 0
+        svc["/State"] = 10   # error / comm fault
+        # ── Comms-loss safety: zero all charger/discharge limits so DVCC ──────
+        # stops driving the MPPT and inverter immediately.  Without this, the
+        # last published CVL/CCL/DCL values stay on D-Bus and the charger
+        # continues blindly at the stale limits.
+        log.warning("BMS offline — zeroing CVL/CCL/DCL to prevent blind charging/discharging")
+        svc["/Info/MaxChargeVoltage"]    = 0.0
+        svc["/Info/MaxChargeCurrent"]    = 0.0
+        svc["/Info/MaxDischargeCurrent"] = 0.0
+        svc["/Io/AllowToCharge"]                    = 0
+        svc["/Io/AllowToDischarge"]                 = 0
+        svc["/Io/AllowToBalance"]                   = 0
+        svc["/System/NrOfModulesBlockingCharge"]    = 1
+        svc["/System/NrOfModulesBlockingDischarge"] = 1
+        return True
+
+    # ── 2b. Stale data guard ──────────────────────────────────────────────────
+    # Data was received recently enough to keep 'online' status but is older
+    # than STALE_TIMEOUT seconds.  Zero CCL/DCL immediately so the charger and
+    # inverter ramp down gracefully while comms recover, rather than running on
+    # stale limits for up to OFFLINE_TIMEOUT seconds.
+    if not bms.data_fresh:
+        age = int(time.time() - bms.last_frame_time)
+        log.warning(f"BMS data stale ({age}s) — zeroing CCL/DCL to prevent blind charging/discharging")
+        svc["/Info/MaxChargeCurrent"]    = 0.0
+        svc["/Info/MaxDischargeCurrent"] = 0.0
+        svc["/Io/AllowToCharge"]                    = 0
+        svc["/Io/AllowToDischarge"]                 = 0
+        svc["/Io/AllowToBalance"]                   = 0
+        svc["/System/NrOfModulesBlockingCharge"]    = 1
+        svc["/System/NrOfModulesBlockingDischarge"] = 1
         return True
 
     # ── 3. Core telemetry ─────────────────────────────────────────────────────
