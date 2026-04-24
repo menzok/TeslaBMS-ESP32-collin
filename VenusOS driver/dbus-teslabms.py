@@ -57,6 +57,10 @@
 #  /Settings/TeslaBMS/MaxChargeTemp          default = 45°C
 #  /Settings/TeslaBMS/MinChargeTemp          default = 5°C
 #
+#  D-Bus trigger paths (write 1 to activate, auto-clears to 0)
+#  ────────────────────────────────────────────────────────────
+#  /Settings/ResetToDefaults  — resets all user settings to factory defaults
+#
 # ─────────────────────────────────────────────────────────────────────────────
 
 import os
@@ -329,6 +333,24 @@ class VenusSettings:
     @property
     def min_charge_temp(self) -> float:
         return float(self._cache["MinChargeTemp"])
+
+    def reset_to_defaults(self) -> None:
+        """
+        Restore every user-configurable setting to its factory default and
+        persist the new values to localsettings so they survive reboots.
+        """
+        defaults = {
+            "MaxChargeCurrent":    DEFAULT_MAX_CHARGE_CURRENT,
+            "MaxDischargeCurrent": DEFAULT_MAX_DISCHARGE_CURRENT,
+            "AbsorptionVoltage":   DEFAULT_ABSORPTION_VOLTAGE,
+            "FloatVoltage":        DEFAULT_FLOAT_VOLTAGE,
+            "TailCurrent":         DEFAULT_TAIL_CURRENT,
+            "MaxChargeTemp":       DEFAULT_MAX_CHARGE_TEMP,
+            "MinChargeTemp":       DEFAULT_MIN_CHARGE_TEMP,
+        }
+        for key, value in defaults.items():
+            self.set(key, value)
+        log.info("Settings reset to factory defaults.")
 
     def effective_max_charge_current(self, overcurrent_threshold: float) -> float:
         """
@@ -1065,6 +1087,11 @@ def build_dbus_service(bus, vs: "VenusSettings") -> VeDbusService:
                  onchangecallback=_make_setting_cb("MinChargeTemp",       -10.0, 20.0),
                  gettextcallback=lambda p, v: f"{v:.1f}°C")
 
+    # ── Reset to defaults trigger ──────────────────────────────────────────────
+    # Write 1 to reset all /Settings/* to factory defaults.  The publish loop
+    # detects the value, calls vs.reset_to_defaults(), and clears it to 0.
+    svc.add_path("/Settings/ResetToDefaults", 0, writeable=True)
+
     # ── Commands ──────────────────────────────────────────────────────────────
     svc.add_path("/Control/Shutdown", 0, writeable=True)
     svc.add_path("/Control/Startup",  0, writeable=True)
@@ -1175,6 +1202,11 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, vs: VenusSettings) -> bool:
         log.info("D-Bus → STARTUP")
         bms.send_command(EXT_CMD_STARTUP)
         svc["/Control/Startup"] = 0
+
+    if svc["/Settings/ResetToDefaults"] == 1:
+        log.info("D-Bus → RESET TO DEFAULTS")
+        vs.reset_to_defaults()
+        svc["/Settings/ResetToDefaults"] = 0
 
     # ── 2. Connection state ───────────────────────────────────────────────────
     online = not bms.is_stale
