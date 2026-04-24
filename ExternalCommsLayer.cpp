@@ -160,12 +160,12 @@ void ExternalCommsLayer::buildPayload(uint8_t* payload) {
 // ─── Frame transmitter ────────────────────────────────────────────────────────
 
 void ExternalCommsLayer::sendPacket() {
-    // Frame: [0xAA][26-byte payload][CRC_lo][CRC_hi]
+    // Frame: [0xAA][34-byte payload][CRC_lo][CRC_hi]  = 37 bytes total
     txBuffer[0] = 0xAA;
     buildPayload(&txBuffer[1]);
     uint16_t crc = calculateCRC16(&txBuffer[1], EXT_PAYLOAD_LEN);
-    txBuffer[27] = crc & 0xFF;          // CRC low byte
-    txBuffer[28] = (crc >> 8) & 0xFF;   // CRC high byte
+    txBuffer[1 + EXT_PAYLOAD_LEN] = crc & 0xFF;          // txBuffer[35] — CRC low byte
+    txBuffer[1 + EXT_PAYLOAD_LEN + 1] = (crc >> 8) & 0xFF;   // txBuffer[36] — CRC high byte
     EXTERNAL_COMM_SERIAL.write(txBuffer, EXT_FRAME_LEN);
 }
 
