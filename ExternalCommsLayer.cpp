@@ -31,7 +31,7 @@ uint16_t ExternalCommsLayer::calculateCRC16(const uint8_t* data, size_t length) 
     return crc;
 }
 
-// ─── Payload builder (26 bytes) ───────────────────────────────────────────────
+// ─── Payload builder (34 bytes) ───────────────────────────────────────────────
 
 void ExternalCommsLayer::buildPayload(uint8_t* payload) {
 
@@ -51,18 +51,28 @@ void ExternalCommsLayer::buildPayload(uint8_t* payload) {
     uint16_t avgCell = (uint16_t)round(avgCellVoltV * 100.0f);  // 10 mV steps
 
     // ── Alarm flags ────────────────────────────────────────────────────────
-    // Bits 5-15 are reserved and default to 0 until Overlord exposes them
     uint16_t alarmFlags = ALARM_NONE;
+    for (int m = 1; m <= MAX_MODULE_ADDR; m++) {
+        if (!bms.moduleExists(m)) continue;
+        for (int c = 0; c < 6; c++) {
+            CellDetails cell = bms.getCellDetails(m, c);
+            float v    = cell.cellVoltage;
+            float tC   = (float)cell.highTemp - 40.0f;   // decode +40 offset
+            if (v > eepromdata.OverVSetpoint)  alarmFlags |= ALARM_OVER_VOLTAGE;
+            if (v < eepromdata.UnderVSetpoint) alarmFlags |= ALARM_UNDER_VOLTAGE;
+            if (tC > eepromdata.OverTSetpoint)  alarmFlags |= ALARM_OVER_TEMP;
+            if (tC < eepromdata.UnderTSetpoint) alarmFlags |= ALARM_UNDER_TEMP;
+        }
+    }
+    if (fabsf(packCurrentA) > eepromdata.OVERCURRENT_THRESHOLD_A)
+        alarmFlags |= ALARM_OVER_CURRENT;
 
     // ── Overlord state ─────────────────────────────────────────────────────
-    uint8_t overlordState = 0;
+    uint8_t overlordState = OVERLORD_STATE_NORMAL;
     auto state = Overlord.getState();
-    if (state == BMSOverlord::BMSState::Fault ||
-        state == BMSOverlord::BMSState::Shutdown) {
-        overlordState = 1;
-    } else if (state == BMSOverlord::BMSState::StorageMode) {
-        overlordState = 2;
-    }
+    if      (state == BMSOverlord::BMSState::Fault)       overlordState = OVERLORD_STATE_FAULT;
+    else if (state == BMSOverlord::BMSState::StorageMode) overlordState = OVERLORD_STATE_STORAGE;
+    else if (state == BMSOverlord::BMSState::Shutdown)    overlordState = OVERLORD_STATE_SHUTDOWN;
 
     uint8_t contactorState = (uint8_t)contactor.getState();
 
@@ -75,10 +85,33 @@ void ExternalCommsLayer::buildPayload(uint8_t* payload) {
     uint8_t  strings = (uint8_t) eepromdata.parallelStrings;
 
     // Overcurrent threshold — 0.1A resolution, uint16
-    // eepromdata.OVERCURRENT_THRESHOLD_A is a float in Amps
     uint16_t overCurrent = (uint16_t)round(eepromdata.OVERCURRENT_THRESHOLD_A * 10.0f);
 
-    // ── Pack into 26 bytes (big-endian for all multi-byte fields) ──────────
+    // ── Status flags ───────────────────────────────────────────────────────
+    uint8_t statusFlags = 0x00;
+    if (eepromdata.currentSensorPresent) statusFlags |= STATUS_FLAG_CURRENT_SENSOR;
+    if (bms.isAnyBalancing())            statusFlags |= STATUS_FLAG_BALANCING;
+
+    // ── Active fault mask — 1<<type for each fault entry that hasn't been cleared
+    // FaultEntry::Type: None=0, OverVoltage=1, UnderVoltage=2, OverTemperature=3,
+    //                   UnderTemperature=4, OverCurrent=5, CommsError=6
+    uint8_t activeFaultMask = 0x00;
+    for (int fi = 0; fi < 5; fi++) {
+        const FaultEntry& fe = eepromdata.faultLog[fi];
+        if (fe.type != FaultEntry::Type::None && fe.clearedTimestamp == 0) {
+            activeFaultMask |= (uint8_t)(1 << (uint8_t)fe.type);
+        }
+    }
+
+    // ── Min / max cell voltage — 1 mV resolution ──────────────────────────
+    uint16_t lowCell  = (uint16_t)round(bms.getLowestCellVoltage()  * 1000.0f);
+    uint16_t highCell = (uint16_t)round(bms.getHighestCellVoltage() * 1000.0f);
+
+    // ── Min / max module temperature ──────────────────────────────────────
+    int8_t minT = (int8_t)round(bms.getMinTemperature());
+    int8_t maxT = (int8_t)round(bms.getMaxTemperature());
+
+    // ── Pack into 34 bytes (big-endian for all multi-byte fields) ──────────
     size_t i = 0;
 
     // Live telemetry
@@ -105,11 +138,23 @@ void ExternalCommsLayer::buildPayload(uint8_t* payload) {
     // Overcurrent threshold
     payload[i++] = (overCurrent >> 8) & 0xFF; payload[i++] = overCurrent & 0xFF; // [22-23]
 
-    // Reserved
-    payload[i++] = 0x00;                                                           // [24]
-    payload[i++] = 0x00;                                                           // [25]
+    // Status flags and fault mask
+    payload[i++] = statusFlags;                                                    // [24]
+    payload[i++] = activeFaultMask;                                                // [25]
 
-    // i == EXT_PAYLOAD_LEN (26)
+    // Min / max cell voltages
+    payload[i++] = (lowCell >> 8)   & 0xFF;  payload[i++] = lowCell   & 0xFF;   // [26-27]
+    payload[i++] = (highCell >> 8)  & 0xFF;  payload[i++] = highCell  & 0xFF;   // [28-29]
+
+    // Min / max temperatures
+    payload[i++] = (uint8_t)minT;                                                  // [30]
+    payload[i++] = (uint8_t)maxT;                                                  // [31]
+
+    // Reserved
+    payload[i++] = 0x00;                                                           // [32]
+    payload[i++] = 0x00;                                                           // [33]
+
+    // i == EXT_PAYLOAD_LEN (34)
 }
 
 // ─── Frame transmitter ────────────────────────────────────────────────────────
@@ -126,54 +171,75 @@ void ExternalCommsLayer::sendPacket() {
 
 // ─── Command processor ──────────────────────────────────────────────────────
 //
-// Non-blocking by design: if fewer than 4 bytes are in the UART hardware buffer
-// we return immediately and let the next loop() tick check again.  The hardware
-// RX FIFO holds bytes safely between ticks so no bytes are ever lost.
+// Two command frame formats are supported:
+//
+//   Control (4 bytes): [0xAA][cmd][CRC_lo][CRC_hi]
+//     CRC computed over [cmd] (1 byte)
+//     Commands: EXT_CMD_SHUTDOWN, EXT_CMD_STARTUP
+//
+//   Data request (7 bytes) — ping-pong exchange:
+//     [0xAA][0x03][curr_hi][curr_lo][staleness][CRC_lo][CRC_hi]
+//     CRC computed over [cmd][curr_hi][curr_lo][staleness] (4 bytes)
+//     Venus embeds its shunt/SCS current here; ESP32 replies with telemetry.
+//     staleness=0 → shunt data is fresh; staleness>0 → stale/unavailable.
+//
+// Non-blocking by design: if there are not enough bytes in the hardware FIFO
+// we return immediately and revisit on the next loop() tick.
 //
 // If the first byte is not 0xAA the buffer is flushed so stale or garbage bytes
-// (e.g. converter glitch noise) don't block the next valid frame.
+// don't block the next valid frame.
 //
 
 void ExternalCommsLayer::processIncomingCommand() {
+    // Need at least 4 bytes for any command frame
     if (EXTERNAL_COMM_SERIAL.available() < 4) return;
-   // Serial.printf("External UART buffer: %d bytes available\n",
-   //     EXTERNAL_COMM_SERIAL.available());
-    uint8_t buf[4];
-    EXTERNAL_COMM_SERIAL.readBytes(buf, 4);
-  //  Serial.print("Raw data (4 bytes): ");
-   // for (int i = 0; i < 4; i++) {
-     //   Serial.printf("0x%02X ", buf[i]);
-   // }
 
-    if (buf[0] != 0xAA) {
-     //   Serial.println("→ Invalid start byte (not expected start bit) - ignoring");
+    uint8_t start = EXTERNAL_COMM_SERIAL.read();
+    if (start != 0xAA) {
         // Flush remaining garbage so the next frame starts clean
-       // Serial.print("→ Discarding garbage: ");
         while (EXTERNAL_COMM_SERIAL.available()) {
-            uint8_t b = EXTERNAL_COMM_SERIAL.read();
-         //   Serial.printf("0x%02X ", b);
+            EXTERNAL_COMM_SERIAL.read();
         }
-       // Serial.println("(buffer cleared)");
         return;
     }
 
-    // Validate CRC over the single command byte only
-    uint16_t calcCRC = calculateCRC16(&buf[1], 1);
-    uint16_t rxCRC   = buf[2] | (buf[3] << 8);
-   // Serial.printf("→ CRC check: calculated=0x%04X, received=0x%04X ", calcCRC, rxCRC);
-    if (calcCRC != rxCRC) return;
+    uint8_t cmd = EXTERNAL_COMM_SERIAL.read();
 
-    uint8_t cmd = buf[1];
-    //Serial.printf("→ Command received: 0x%02X\n", cmd);
+    if (cmd == EXT_CMD_SEND_DATA) {
+        // Data-request frame: 3 payload bytes + 2 CRC bytes still to come (5 total).
+        // readBytes() honours the serial timeout so we never spin indefinitely.
+        uint8_t data[5];
+        if (EXTERNAL_COMM_SERIAL.readBytes(data, 5) < 5) return;  // timeout — discard
+
+        // data[0..1] = shunt current × 10 (int16 BE), data[2] = staleness
+        // data[3..4] = CRC little-endian over [cmd, data[0], data[1], data[2]]
+        uint8_t crcInput[4] = { cmd, data[0], data[1], data[2] };
+        uint16_t calcCRC = calculateCRC16(crcInput, 4);
+        uint16_t rxCRC   = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
+        if (calcCRC != rxCRC) return;
+
+        int16_t rawI    = (int16_t)(((uint16_t)data[0] << 8) | data[1]);
+        _shuntCurrentA  = rawI / 10.0f;
+        _shuntStaleness = data[2];
+        _shuntUpdateMs  = millis();
+
+        sendPacket();
+        return;
+    }
+
+    // Control command (SHUTDOWN / STARTUP): 2 CRC bytes follow
+    uint8_t crcBytes[2];
+    if (EXTERNAL_COMM_SERIAL.readBytes(crcBytes, 2) < 2) return;  // timeout — discard
+    uint16_t calcCRC = calculateCRC16(&cmd, 1);
+    uint16_t rxCRC   = (uint16_t)crcBytes[0] | ((uint16_t)crcBytes[1] << 8);
+    if (calcCRC != rxCRC) return;
 
     if (cmd == EXT_CMD_SHUTDOWN) {
         Overlord.requestShutdown();
     } else if (cmd == EXT_CMD_STARTUP) {
         Overlord.requestStartup();
     }
-    // EXT_CMD_SEND_DATA: no special action, fall through to sendPacket()
-
-    sendPacket();
+    // Control commands do not generate a telemetry reply
 }
 
 // ─── Main update ──────────────────────────────────────────────────────────────

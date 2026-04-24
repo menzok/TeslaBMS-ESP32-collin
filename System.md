@@ -154,8 +154,7 @@ struct CellDetails    { float cellVoltage; float highestCellVolt; float lowestCe
 
 ### Setup & Discovery
 
-**`BMSModuleManager()`** — Constructor. Initializes every slot in the `modules[]` array (sets address and `exists = false`), and resets pack-level min/max voltage 
-& temperature trackers to safe defaults.
+**`BMSModuleManager()`** — Constructor. Initializes every slot in the `modules[]` array (sets address and `exists = false`), and resets pack-level min/max voltage, temperature, and **cell voltage** trackers to safe defaults.
 
 **`void findBoards()`** — Scans addresses 1 to `MAX_MODULE_ADDR` by sending a short read command to each possible module. Any module that responds correctly is
 marked `exists = true` and `numFoundModules` is incremented.
@@ -176,14 +175,20 @@ sequentially in physical daisy-chain order.
 the vehicle is off).
 
 **`void getAllVoltTemp()`** — The main polling / data-collection routine (called repeatedly from the main loop or BMSOverlord).
-For every existing module it calls `readModuleValues()`, accumulates the total pack voltage (sum of all module voltages, divided by `eepromdata.parallelStrings` 
-to support parallel strings), updates the pack's running min/max temperature trackers, and stores the current pack voltage.
+For every existing module it calls `readModuleValues()`, accumulates the total pack voltage (sum of all module voltages, divided by `eepromdata.parallelStrings`
+to support parallel strings), updates the pack's running min/max temperature trackers, and — new in v2.0 — tracks the **pack-wide lowest and highest individual
+cell voltages** across all modules for telemetry and dynamic CVL calculation.
 
 ### Pack & Module Information (Accessors)
 
 - `int getNumberOfModules() const` — Returns the current count of discovered modules.
 - `float getPackVoltage()` — Returns the most recently calculated pack voltage.
 - `float getAvgTemperature()` / `float getAvgCellVolt()` — Returns pack-wide averages.
+- `float getLowestCellVoltage()` — Returns the lowest individual cell voltage across the entire pack (updated every `getAllVoltTemp()` call).
+- `float getHighestCellVoltage()` — Returns the highest individual cell voltage across the entire pack.
+- `float getMinTemperature()` — Returns the minimum module temperature across the pack.
+- `float getMaxTemperature()` — Returns the maximum module temperature across the pack.
+- `bool isAnyBalancing() const` — Returns `true` if any cell in any module is currently being actively balanced.
 - `BatterySummary getBatterySummary()` — Returns the full pack-level summary struct (voltage, SOC from EEPROM, temperature stats).
 - `ModuleSummary getModuleSummary(int module)` — Returns a summary struct for one specific module.
 - `CellDetails getCellDetails(int module, int cell)` — Returns detailed info for one cell (current voltage, lifetime high/low, high temp, fault bits).
@@ -198,7 +203,7 @@ to support parallel strings), updates the pack's running min/max temperature tra
 
 - `BMSModule modules[MAX_MODULE_ADDR + 1]` — Internal array of all module objects (never exposed directly).
 - `int numFoundModules`
-- Pack-level statistics (`packVolt`, `lowestPackVolt`, `highestPackVolt`, `lowestPackTemp`, `highestPackTemp`).
+- Pack-level statistics (`packVolt`, `lowestPackVolt`, `highestPackVolt`, `lowestPackTemp`, `highestPackTemp`, `lowestPackCellV`, `highestPackCellV`).
 
 This class sits at the top of the low-level BMS stack. Everything above it talks exclusively to the manager. No direct calls to individual BMSModule objects or 
 BMSUtil occur outside this class.
@@ -207,14 +212,17 @@ BMSUtil occur outside this class.
 # SOCCalculator.h / SOCCalculator.cpp / SOCCalculator Class
 # ===========================================================================================================================
 
-This class is responsible for calculating and maintaining the State of Charge (SOC) of the entire battery pack. It implements a hybrid estimation strategy:
+This class is responsible for calculating and maintaining the State of Charge (SOC) of the entire battery pack. It implements a three-path estimation strategy:
 
-- **When a current sensor is installed** (`eepromdata.currentSensorPresent == true`): primary coulomb counting with trapezoidal integration + slow OCV-based drift 
-correction while the pack is at rest.
-- **When no current sensor is present**: pure OCV-based estimation with temperature compensation.
+- **When a current sensor is installed** (`eepromdata.currentSensorPresent == true`): primary coulomb counting with trapezoidal integration + slow OCV-based drift
+  correction while the pack is at rest.
+- **When no internal sensor but Venus shunt data is fresh** (`ExternalComms.isShuntDataFresh()`): coulomb counting using the SmartShunt current value injected by
+  the Venus OS driver via the ping-pong frame. Data is considered fresh only when `staleness == 0` **and** the last frame was received within `SHUNT_MAX_AGE_MS`
+  (6 000 ms ≈ 3 missed polls at 2 s intervals).
+- **When neither source is available**: pure OCV-based estimation with temperature compensation, blending slowly toward the OCV lookup result every update tick.
 
-It uses the global `BMSModuleManager bms` instance to obtain the latest pack voltage and average temperature, and it directly reads from / writes to the global 
-`eepromdata` struct (specifically `socPercent` and `coulombCountAh`). The actual SOC value is not stored inside the SOCCalculator object. 
+It uses the global `BMSModuleManager bms` instance to obtain the latest pack voltage and average temperature, and it directly reads from / writes to the global
+`eepromdata` struct (specifically `socPercent` and `coulombCountAh`). The actual SOC value is not stored inside the SOCCalculator object.
 The header contains a large static OCV-SOC lookup table (14 SOC points × 4 temperature points) with bilinear interpolation for accurate voltage-to-SOC conversion.
 
 ## Public Functions
@@ -227,7 +235,7 @@ Constructor. Simply initializes internal state variables to defaults; no calibra
 
 Must be called once during system startup (before contactors close).
 - Calculates `_cellsInSeries` from the current number of discovered modules and the parallel-strings setting.
-- Sets `_packCapacityAh` based on parallel strings (hard-coded 22 Ah per string for standard Tesla 18650 modules).
+- Sets `_packCapacityAh` based on parallel strings (hard-coded 232 Ah per string for standard Tesla 18650 modules).
 - If a current sensor is configured, performs a short blocking zero-offset calibration on the ESP32 ADC (averages 32 samples).
 - On cold boot (invalid SOC in EEPROM), seeds `eepromdata.socPercent` with an OCV lookup based on current average cell voltage and temperature.
 
@@ -235,12 +243,16 @@ Must be called once during system startup (before contactors close).
 
 The main SOC calculation routine. Called periodically (every `SOC_UPDATE_INTERVAL_MS`) from the scheduler / main loop.
 - Reads the latest pack summary from `bms.getBatterySummary()` to get pack voltage and average temperature.
-- If current sensor present:
+- **Path 1 — Internal sensor present:**
   - Reads and applies IIR low-pass filtering to the current measurement.
   - Performs coulomb counting (trapezoidal integration of current over elapsed time).
   - When pack current is near zero (< `SOC_ZERO_CURRENT_THRESHOLD`), slowly blends the coulomb-count SOC toward the OCV lookup result to correct long-term drift.
-- If no current sensor: applies pure OCV blending every update.
-- Applies "hard reset" logic: if average cell voltage stays above `SOC_CELL_FULL_VOLTAGE` (or below `SOC_CELL_EMPTY_VOLTAGE`) for `SOC_RESET_CONFIRM_TICKS` consecutive 
+- **Path 2 — Venus shunt data fresh (`ExternalComms.isShuntDataFresh()`):**
+  - Same coulomb counting logic as path 1, using the shunt current received from Venus.
+  - Falls through to path 3 if `isShuntDataFresh()` returns false (stale data, Venus offline, or staleness counter > 0).
+- **Path 3 — No usable current source:**
+  - Applies pure OCV blending every update. Filtered current state is reset so it does not drift.
+- Applies "hard reset" logic: if average cell voltage stays above `SOC_CELL_FULL_VOLTAGE` (or below `SOC_CELL_EMPTY_VOLTAGE`) for `SOC_RESET_CONFIRM_TICKS` consecutive
   calls, it forces SOC to 100% or 0% and resets the coulomb counter.
 - Always clamps `eepromdata.socPercent` between 0 and 100.
 
@@ -402,7 +414,9 @@ It does not own any battery data itself — it only reads from the global `bms`,
 
 **`enum class BMSState : uint8_t { Normal, Warning, Fault, StorageMode, Shutdown };`**
 
-The five possible high-level states of the BMS. `Warning` is defined but currently unused.
+The five possible high-level states of the BMS.  `Warning` is defined but currently unused.
+**`Shutdown`** (value 3) is now a distinct state from `Fault` (value 1) — a clean external shutdown
+no longer maps to the Fault state and does not trigger a false `InternalFailure` alarm in Venus OS.
 
 **`void init()`**
 
@@ -565,10 +579,103 @@ Simply comment out the relevant cases in `handleRootCommand()` and remove the me
 The menu is completely decoupled from the BMS logic — it only reads from `bms`, `socCalculator`, `eepromdata`, and `Logger`. No safety or control code lives here.
 
 # ===========================================================================================================================
+# ExternalCommsLayer.h / ExternalCommsLayer.cpp / ExternalCommsLayer Class
+# ===========================================================================================================================
+
+This class implements the Venus OS ↔ ESP32 serial communication protocol.  It is the only component
+that talks over `EXTERNAL_COMM_SERIAL` (defined in `config.h`, default 115200 baud).
+
+There is one global instance `ExternalCommsLayer ExternalComms;` created in the main `.ino`.
+
+## Role
+
+- Receives command frames from the Venus OS driver on every loop iteration via `update()`.
+- On a `CMD_SEND_DATA (0x03)` command, extracts the embedded shunt current + staleness counter,
+  then immediately builds and sends the 37-byte telemetry reply.
+- On `CMD_SHUTDOWN (0x01)` or `CMD_STARTUP (0x02)`, forwards the request to `BMSOverlord`.
+- Exposes the last received shunt current and a freshness predicate to `SOCCalculator`.
+
+## Protocol Summary
+
+### Incoming command frames (Venus OS → ESP32)
+
+| Command | Frame | Carries |
+|---|---|---|
+| `CMD_SEND_DATA (0x03)` | 7 bytes | Shunt current (int16 BE × 10) + staleness byte + CRC |
+| `CMD_SHUTDOWN (0x01)` | 4 bytes | CRC only |
+| `CMD_STARTUP (0x02)` | 4 bytes | CRC only |
+
+All frames start with `0xAA`.  CRC-16/MODBUS is verified on every frame; corrupt frames are silently
+discarded.  Remaining bytes are read using `Serial.readBytes()` which honours the hardware timeout —
+no spin-waits or `available()` polling.
+
+### Outgoing telemetry frame (ESP32 → Venus OS)
+
+37 bytes: `[0xAA]` + 34-byte payload + 2-byte CRC-16/MODBUS.  Sent only in response to
+`CMD_SEND_DATA`.  See the Venus OS driver README for the full payload map.
+
+`buildPayload()` assembles all 34 bytes from live BMS data each time it is called:
+
+| Payload region | Source |
+|---|---|
+| Pack voltage, current, SOC, avg temp, power, avg cell V | `bms.getBatterySummary()` + `socCalculator` |
+| Alarm flags | Per-cell/current threshold checks against EEPROM values |
+| Overlord state (0–3) | `Overlord.getState()` — 0=Normal, 1=Fault, 2=Storage, **3=Shutdown** |
+| Contactor state | `contactor.getState()` |
+| EEPROM thresholds | `eepromdata.*` directly |
+| statusFlags (bit0=currentSensorPresent, bit1=balancingActive) | `eepromdata.currentSensorPresent`, `bms.isAnyBalancing()` |
+| activeFaultMask | Fault log entries with `clearedTimestamp == 0` → `1 << FaultEntry::Type` |
+| lowestCellV / highestCellV | `bms.getLowestCellVoltage()` / `bms.getHighestCellVoltage()` |
+| minTemp / maxTemp | `bms.getMinTemperature()` / `bms.getMaxTemperature()` |
+
+## Public Interface
+
+**`void init()`** — Sets the serial port baud rate. Call once from `setup()`.
+
+**`void update()`** — Reads and processes one waiting command frame. Call every `loop()` iteration
+after `Overlord.update()` so the telemetry reply contains the most recent data.
+
+**`float getShuntCurrentAmps() const`** — The last shunt current received from Venus (A, + = charge).
+
+**`uint8_t getShuntStaleness() const`** — The staleness counter from the last `CMD_SEND_DATA` frame.
+`0` = Venus had fresh SmartShunt data; higher values mean Venus could not read the shunt.
+
+**`bool isShuntDataFresh() const`** — Returns `true` when:
+- `_shuntStaleness == 0` (Venus had fresh data this poll), **and**
+- the last `CMD_SEND_DATA` frame arrived within `SHUNT_MAX_AGE_MS` (6 000 ms).
+
+Used by `SOCCalculator::update()` to decide whether the Venus shunt path is usable.
+
+## Constants (ExternalCommsLayer.h)
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `EXT_CMD_SHUTDOWN` | `0x01` | Command: open contactors |
+| `EXT_CMD_STARTUP` | `0x02` | Command: close contactors |
+| `EXT_CMD_SEND_DATA` | `0x03` | Command: request telemetry (carries shunt current) |
+| `EXT_SEND_DATA_FRAME_LEN` | `7` | Length of CMD_SEND_DATA request frame |
+| `EXT_CTRL_FRAME_LEN` | `4` | Length of SHUTDOWN/STARTUP frame |
+| `EXT_FRAME_LEN` | `37` | Length of telemetry reply frame |
+| `PAYLOAD_LEN` | `34` | Payload bytes (excludes start byte and CRC) |
+| `SHUNT_MAX_AGE_MS` | `6000` | Shunt data expires after 6 s (≈ 3 missed polls) |
+| `OVERLORD_STATE_NORMAL` | `0` | |
+| `OVERLORD_STATE_FAULT` | `1` | |
+| `OVERLORD_STATE_STORAGE` | `2` | |
+| `OVERLORD_STATE_SHUTDOWN` | `3` | Clean shutdown — distinct from Fault |
+| `STATUS_FLAG_CURRENT_SENSOR` | `bit 0` | `statusFlags`: internal current sensor fitted |
+| `STATUS_FLAG_BALANCING` | `bit 1` | `statusFlags`: at least one cell balancing |
+| `ALARM_OVER_VOLTAGE` | `bit 0` | `alarmFlags`: cell OV |
+| `ALARM_UNDER_VOLTAGE` | `bit 1` | `alarmFlags`: cell UV |
+| `ALARM_OVER_TEMP` | `bit 2` | `alarmFlags`: pack OT |
+| `ALARM_UNDER_TEMP` | `bit 3` | `alarmFlags`: pack UT |
+| `ALARM_OVER_CURRENT` | `bit 4` | `alarmFlags`: pack OC |
+
+# ===========================================================================================================================
 # Data Flow Summary
 # ===========================================================================================================================
 
 - `Overlord.update()` → `bms.getAllVoltTemp()` → `BMSModule::readModuleValues()` → `BMSUtil` serial I/O.
 - Balancing, SOC, contactor, and safety checks run from the same heartbeat.
-- All external interfaces (web, MQTT, serial menu) read via `bms.getBatterySummary()`, `Overlord.getState()`, etc.
+- All external interfaces (Venus OS driver, serial menu) read via `bms.getBatterySummary()`, `Overlord.getState()`, etc.
 - Persistent state lives only in `eepromdata` and is saved explicitly.
+- `ExternalComms.update()` is called every loop; it processes the next waiting command from Venus OS and, on `CMD_SEND_DATA`, fills the shunt data fields and immediately transmits the 37-byte telemetry reply.

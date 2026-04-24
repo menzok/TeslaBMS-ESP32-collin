@@ -58,6 +58,11 @@ public:
     float          getPackVoltage();
     float          getAvgTemperature();
     float          getAvgCellVolt();
+    float          getLowestCellVoltage();   // pack-wide lowest cell voltage
+    float          getHighestCellVoltage();  // pack-wide highest cell voltage
+    float          getMinTemperature();      // pack-wide minimum module temperature
+    float          getMaxTemperature();      // pack-wide maximum module temperature
+    bool           isAnyBalancing() const;   // true if any cell is actively balancing
 
     // --- Serial Output ---
     void printPackSummary();
@@ -69,6 +74,8 @@ private:
     float     highestPackVolt;
     float     lowestPackTemp;
     float     highestPackTemp;
+    float     lowestPackCellV;   // pack-wide lowest individual cell voltage
+    float     highestPackCellV;  // pack-wide highest individual cell voltage
     BMSModule modules[MAX_MODULE_ADDR + 1];
     int       numFoundModules;
 

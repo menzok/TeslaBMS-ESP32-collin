@@ -1,4 +1,5 @@
-﻿#include "SOCCalculator.h"
+#include "SOCCalculator.h"
+#include "ExternalCommsLayer.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 SOCCalculator::SOCCalculator()
@@ -23,7 +24,7 @@ void SOCCalculator::begin()
     _cellsInSeries  = (int)(bms.getNumberOfModules() / strings) * 6;
     if (_cellsInSeries == 0) _cellsInSeries = 1;   // prevent /0 in update()
     _packCapacityAh = (float)strings * 22.0f; // 22Ah per string for Tesla 18650 modules - adjust if using different cells
-    _fullConfirmTicks = 0;
+    _fullConfirmTicks  = 0;
     _emptyConfirmTicks = 0;
     _lastUpdateMs = millis();
     _initialised = true;
@@ -106,8 +107,36 @@ void SOCCalculator::update()
         }
 
     }
+    else if (ExternalComms.isShuntDataFresh()) {
+        // ── No internal sensor — use Venus shunt/SCS current ─────────────
+        // Venus embeds the SmartShunt reading in every CMD_SEND_DATA request.
+        // isShuntDataFresh() returns true only while staleness==0 AND the last
+        // update arrived within SHUNT_MAX_AGE_MS (6 s / ~3 missed polls).
+        float shuntA = ExternalComms.getShuntCurrentAmps();
+        _filteredCurrentA = 0.3f * shuntA + 0.7f * _filteredCurrentA;
+
+        float avgCurrentA = (_lastCurrentA + _filteredCurrentA) * 0.5f;
+        _lastCurrentA = _filteredCurrentA;
+
+        float deltaAh = avgCurrentA * ((float)elapsed / 3600000.0f);
+        eepromdata.coulombCountAh += deltaAh;
+
+        float deltaSOC = (deltaAh / _packCapacityAh) * 100.0f;
+        eepromdata.socPercent += deltaSOC;
+        eepromdata.socPercent = _clampSOC(eepromdata.socPercent);
+
+        // OCV blend at rest
+        if (fabsf(_filteredCurrentA) < SOC_ZERO_CURRENT_THRESHOLD) {
+            float ocvSoc = _ocvToSOC(cellVoltage, cellTempC);
+            eepromdata.socPercent = eepromdata.socPercent
+                + SOC_OCV_REST_BLEND_RATE * (ocvSoc - eepromdata.socPercent);
+            eepromdata.socPercent = _clampSOC(eepromdata.socPercent);
+        }
+
+    }
     else {
-        // ── No sensor: pure OCV blend every tick ─────────────────────────
+        // ── No usable current source (no sensor, or shunt data older than
+        // SHUNT_MAX_AGE_MS / Venus staleness > 0) — pure OCV blend.
         float ocvSoc = _ocvToSOC(cellVoltage, cellTempC);
         eepromdata.socPercent = eepromdata.socPercent
             + SOC_OCV_REST_BLEND_RATE * (ocvSoc - eepromdata.socPercent);

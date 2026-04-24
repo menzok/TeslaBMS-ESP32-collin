@@ -14,6 +14,8 @@ BMSModuleManager::BMSModuleManager()
     highestPackVolt = 0.0f;
     lowestPackTemp = 200.0f;
     highestPackTemp = -100.0f;
+    lowestPackCellV = 5.0f;
+    highestPackCellV = 0.0f;
 }
 
 void BMSModuleManager::balanceCells()
@@ -220,6 +222,8 @@ void BMSModuleManager::wakeBoards()
 uint8_t BMSModuleManager::getAllVoltTemp()
 {
     packVolt = 0.0f;   // ← reset before we start adding
+    lowestPackCellV  = 5.0f;
+    highestPackCellV = 0.0f;
     uint8_t successfulReads = 0;
 
     for (int x = 1; x <= MAX_MODULE_ADDR; x++)
@@ -233,14 +237,16 @@ uint8_t BMSModuleManager::getAllVoltTemp()
             Logger::debug("Lowest Cell V: %f     Highest Cell V: %f", modules[x].getLowCellV(), modules[x].getHighCellV());
             Logger::debug("Temp1: %f       Temp2: %f", modules[x].getTemperature(0), modules[x].getTemperature(1));
 
-            packVolt += modules[x].getModuleVoltage();   
+            packVolt += modules[x].getModuleVoltage();
 
-            if (modules[x].getLowTemp() < lowestPackTemp) lowestPackTemp = modules[x].getLowTemp();
+            if (modules[x].getLowTemp()  < lowestPackTemp)  lowestPackTemp  = modules[x].getLowTemp();
             if (modules[x].getHighTemp() > highestPackTemp) highestPackTemp = modules[x].getHighTemp();
+
+            if (modules[x].getLowCellV()  < lowestPackCellV)  lowestPackCellV  = modules[x].getLowCellV();
+            if (modules[x].getHighCellV() > highestPackCellV) highestPackCellV = modules[x].getHighCellV();
         }
     }
 
-  
     packVolt /= (float)eepromdata.parallelStrings;
 
     if (packVolt > highestPackVolt) highestPackVolt = packVolt;
@@ -277,6 +283,39 @@ float BMSModuleManager::getAvgCellVolt()
     avg = avg / (float)numFoundModules;
 
     return avg;
+}
+
+float BMSModuleManager::getLowestCellVoltage()
+{
+    return (lowestPackCellV < 5.0f) ? lowestPackCellV : 0.0f;
+}
+
+float BMSModuleManager::getHighestCellVoltage()
+{
+    return highestPackCellV;
+}
+
+float BMSModuleManager::getMinTemperature()
+{
+    return (lowestPackTemp < 200.0f) ? lowestPackTemp : 0.0f;
+}
+
+float BMSModuleManager::getMaxTemperature()
+{
+    return (highestPackTemp > -100.0f) ? highestPackTemp : 0.0f;
+}
+
+bool BMSModuleManager::isAnyBalancing() const
+{
+    for (int x = 1; x <= MAX_MODULE_ADDR; x++)
+    {
+        if (!modules[x].isExisting()) continue;
+        for (int c = 0; c < 6; c++)
+        {
+            if (modules[x].getBalancingState(c) == 1) return true;
+        }
+    }
+    return false;
 }
 
 void BMSModuleManager::printPackSummary()
