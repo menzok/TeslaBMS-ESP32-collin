@@ -87,25 +87,26 @@ from settingsdevice import SettingsDevice  # noqa: E402
 AH_PER_MODULE = 232.0   # Ah per Tesla module (6S 74P, 232 Ah)
 
 # Hard cap — user settings are clamped to this regardless of what they enter.
+# The ESP32 EEPROM overcurrent threshold is also enforced as an upper bound.
 CURRENT_HARD_CAP = 500.0   # A
 
-# Settings defaults
+# Settings defaults — healthy starting points for a Tesla Model 3 pack
 DEFAULT_MAX_CHARGE_CURRENT    = 250.0   # A
 DEFAULT_MAX_DISCHARGE_CURRENT = 250.0   # A
 DEFAULT_ABSORPTION_VOLTAGE    = 4.15    # V per cell
 DEFAULT_FLOAT_VOLTAGE         = 4.10    # V per cell
-DEFAULT_TAIL_CURRENT          = 10.0    # A
-DEFAULT_MAX_CHARGE_TEMP       = 45.0    # °C
-DEFAULT_MIN_CHARGE_TEMP       = 5.0     # °C
+DEFAULT_TAIL_CURRENT          = 10.0    # A  (end-of-charge detection)
+DEFAULT_MAX_CHARGE_TEMP       = 45.0    # °C (charge inhibit above)
+DEFAULT_MIN_CHARGE_TEMP       = 5.0     # °C (charge inhibit below)
 
 # Timing
-SERIAL_TIMEOUT_S    = 3.5
-PROBE_TIMEOUT_S     = 1.0
-POLL_INTERVAL_S     = 2.0
-CMD_RETRIES         = 3
-CMD_RETRY_DELAY_S   = 1.0
-STALE_TIMEOUT       = 5.0
-OFFLINE_TIMEOUT     = 15.0
+SERIAL_TIMEOUT_S    = 3.5    # read timeout inside send_command — generous margin above ESP32 response latency
+PROBE_TIMEOUT_S     = 1.0    # per-port read timeout used only during port discovery (ESP32 responds in <10 ms)
+POLL_INTERVAL_S     = 2.0    # how often Pi sends CMD 0x03 to request data
+CMD_RETRIES         = 3      # number of attempts before declaring a command failed
+CMD_RETRY_DELAY_S   = 1.0    # pause between retries — lets the ESP32 drain any converter noise before the next command arrives
+STALE_TIMEOUT       = 5.0    # flag data as stale if no frame received within this window
+OFFLINE_TIMEOUT     = 15.0   # flag as offline/cable-fault after this long with no frame
 BAUD_RATE           = 115200
 PUBLISH_INTERVAL_MS = 1000
 
@@ -138,6 +139,7 @@ ALARM_UNDER_VOLTAGE = (1 << 1)
 ALARM_OVER_TEMP     = (1 << 2)
 ALARM_UNDER_TEMP    = (1 << 3)
 ALARM_OVER_CURRENT  = (1 << 4)
+# bits 5-15: reserved, not yet implemented in ESP32 firmware
 
 ALARM_OK      = 0
 ALARM_WARNING = 1
@@ -190,6 +192,18 @@ def crc16_modbus(data: bytes) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class VenusSettings:
+    """
+    Persists user-configurable charge/discharge settings in
+    com.victronenergy.settings under /Settings/TeslaBMS/.
+
+    These settings survive reboots and firmware updates.
+    They are the user's installation-specific limits and charge targets.
+
+    The ESP32 EEPROM overcurrent threshold is enforced as a hard upper
+    bound on MaxChargeCurrent and MaxDischargeCurrent — the user cannot
+    set values above what the contactor is rated for.
+    """
+
     _BASE = SETTINGS_BASE
 
     def __init__(self, bus):
@@ -206,7 +220,11 @@ class VenusSettings:
         }
 
     def setup(self) -> None:
+        """Register settings with localsettings. Call once at startup."""
         settings_map = {
+            # [dbus_path, default, min, max]
+            #
+            # Current limits — clamped at runtime to ESP32 overcurrent threshold
             "MaxChargeCurrent": [
                 f"{self._BASE}/MaxChargeCurrent",
                 DEFAULT_MAX_CHARGE_CURRENT, 1.0, CURRENT_HARD_CAP,
@@ -215,25 +233,40 @@ class VenusSettings:
                 f"{self._BASE}/MaxDischargeCurrent",
                 DEFAULT_MAX_DISCHARGE_CURRENT, 1.0, CURRENT_HARD_CAP,
             ],
+            # Per-cell voltage targets for the Victron charge algorithm
+            # Absorption: held at this voltage until tail current is reached
             "AbsorptionVoltage": [
                 f"{self._BASE}/AbsorptionVoltage",
-                DEFAULT_ABSORPTION_VOLTAGE, 3.50, 4.25,
+                DEFAULT_ABSORPTION_VOLTAGE,
+                3.50,   # V per cell — never go below this for absorption
+                4.25,   # V per cell — hard upper limit
             ],
+            # Float: maintained after absorption complete
             "FloatVoltage": [
                 f"{self._BASE}/FloatVoltage",
-                DEFAULT_FLOAT_VOLTAGE, 3.20, 4.20,
+                DEFAULT_FLOAT_VOLTAGE,
+                3.20,   # V per cell
+                4.20,   # V per cell
             ],
+            # Tail current: charge considered complete when current drops below this
             "TailCurrent": [
                 f"{self._BASE}/TailCurrent",
-                DEFAULT_TAIL_CURRENT, 0.5, 50.0,
+                DEFAULT_TAIL_CURRENT,
+                0.5,    # A
+                50.0,   # A
             ],
+            # Temperature window for charging
             "MaxChargeTemp": [
                 f"{self._BASE}/MaxChargeTemp",
-                DEFAULT_MAX_CHARGE_TEMP, 20.0, 60.0,
+                DEFAULT_MAX_CHARGE_TEMP,
+                20.0,   # °C
+                60.0,   # °C
             ],
             "MinChargeTemp": [
                 f"{self._BASE}/MinChargeTemp",
-                DEFAULT_MIN_CHARGE_TEMP, -10.0, 20.0,
+                DEFAULT_MIN_CHARGE_TEMP,
+                -10.0,  # °C
+                20.0,   # °C
             ],
         }
         self._sd = SettingsDevice(
@@ -243,6 +276,8 @@ class VenusSettings:
             name=SETTINGS_SERVICE,
             timeout=10,
         )
+
+        # Seed cache from whatever localsettings currently holds
         for key in self._cache:
             try:
                 self._cache[key] = self._sd[key]
@@ -250,48 +285,60 @@ class VenusSettings:
                 pass
         log.info(f"VenusSettings ready: {self._cache}")
 
-    def _on_setting_changed(self, setting, old_value, new_value):
+    def _on_setting_changed(self, setting: str, old_value, new_value) -> None:
         log.info(f"Setting '{setting}' changed: {old_value} → {new_value}")
         self._cache[setting] = new_value
 
+    # ─── Read accessors ───────────────────────────────────────────────────────
+
     @property
-    def max_charge_current(self):
+    def max_charge_current(self) -> float:
         return float(self._cache["MaxChargeCurrent"])
 
     @property
-    def max_discharge_current(self):
+    def max_discharge_current(self) -> float:
         return float(self._cache["MaxDischargeCurrent"])
 
     @property
-    def absorption_voltage(self):
+    def absorption_voltage(self) -> float:
         return float(self._cache["AbsorptionVoltage"])
 
     @property
-    def float_voltage(self):
+    def float_voltage(self) -> float:
         return float(self._cache["FloatVoltage"])
 
     @property
-    def tail_current(self):
+    def tail_current(self) -> float:
         return float(self._cache["TailCurrent"])
 
     @property
-    def max_charge_temp(self):
+    def max_charge_temp(self) -> float:
         return float(self._cache["MaxChargeTemp"])
 
     @property
-    def min_charge_temp(self):
+    def min_charge_temp(self) -> float:
         return float(self._cache["MinChargeTemp"])
 
     def effective_max_charge_current(self, overcurrent_threshold: float) -> float:
+        """
+        Returns the effective CCL — the lower of:
+          - User-configured MaxChargeCurrent
+          - ESP32 EEPROM overcurrent threshold (contactor rating)
+        Ensures the user can never accidentally set a limit above the
+        hardware safety threshold.
+        """
         return min(self.max_charge_current, overcurrent_threshold)
 
     def effective_max_discharge_current(self, overcurrent_threshold: float) -> float:
+        """Same enforcement for DCL."""
         return min(self.max_discharge_current, overcurrent_threshold)
 
     def pack_absorption_voltage(self, cell_count: int) -> float:
+        """Absorption CVL for the full pack."""
         return round(self.absorption_voltage * cell_count, 2)
 
     def pack_float_voltage(self, cell_count: int) -> float:
+        """Float CVL for the full pack."""
         return round(self.float_voltage * cell_count, 2)
 
 
@@ -408,7 +455,7 @@ class TeslaBMSSerial:
         self.eep_undertemp          = -10.0
         self.eep_num_modules        = 2
         self.eep_num_strings        = 1
-        self.eep_overcurrent_thresh = 350.0
+        self.eep_overcurrent_thresh = 350.0   # A — from EEPROM OVERCURRENT_THRESHOLD_A
 
         # ── Derived ───────────────────────────────────────────────────────────
         self.cell_count  = 6
@@ -508,16 +555,29 @@ class TeslaBMSSerial:
 
     def _probe_port(self, port: str) -> "serial.Serial | None":
         """
-        Open port, send an extended CMD_SEND_DATA frame (with zeroed shunt
-        fields) and verify the reply.  Returns the open handle on success.
+        Open *port*, send an extended CMD_SEND_DATA frame (with zeroed shunt
+        fields) and verify the reply.
+
+        Returns the already-open serial handle (with timeout switched to
+        SERIAL_TIMEOUT_S) on success so that _connect() can adopt it directly —
+        no close/reopen, no further DTR/RTS transitions that would charge the
+        ESP32 auto-reset RC circuit and cause a delayed reset.
+
+        On failure the port is closed before returning None.
         """
         ser = None
         try:
+            # dsrdtr=False / rtscts=False: keep DTR and RTS de-asserted so the
+            # USB-UART bridge does not trigger the ESP32 auto-reset circuit.
+            # exclusive=True (TIOCEXCL): lock the port immediately on open so
+            # that ModemManager, udev, or any other process cannot open it
+            # concurrently and cause a mid-session DTR/RTS glitch.
             ser = serial.Serial(port, BAUD_RATE, timeout=PROBE_TIMEOUT_S,
                                 dsrdtr=False, rtscts=False, exclusive=True)
-            ser.dtr = False
+            ser.dtr = False   # explicit: do not pull EN low via auto-reset RC
             ser.rts = False
             log.info(f"Probing {port} …")
+            # Brief settle so line stabilises after open without a device reset
             time.sleep(0.1)
             frame = self._build_send_data_frame(current_a=0.0, staleness=255)
             ser.reset_input_buffer()
@@ -528,12 +588,14 @@ class TeslaBMSSerial:
                 crc_rx  = struct.unpack("<H", data[1 + PAYLOAD_LEN: FRAME_LEN])[0]
                 if crc16_modbus(payload) == crc_rx:
                     log.info(f"✅ TeslaBMS-ESP32 confirmed on {port}")
+                    # Switch to operational timeout in-place — no close/reopen needed
                     ser.timeout = SERIAL_TIMEOUT_S
                     ser.reset_input_buffer()
-                    return ser
+                    return ser          # hand the open handle to _connect()
             log.debug(f"  {port}: no valid reply")
         except Exception as exc:
             log.debug(f"  {port}: {exc}")
+        # Only close when the port is NOT being handed off to the caller
         if ser is not None:
             try:
                 ser.close()
@@ -564,6 +626,8 @@ class TeslaBMSSerial:
                 return False
             self._last_connect_attempt = now
 
+        # _find_port() returns an already-open, confirmed serial handle so that
+        # no second open() call (and its associated DTR/RTS transients) occurs.
         ser = self._find_port()
         if not ser:
             return False
@@ -573,12 +637,13 @@ class TeslaBMSSerial:
             self._port     = ser.port
             self.connected = True
         log.info(f"✅ Connected on {ser.port}")
+        # Block serial-starter from polling this port while we own it.
         self._serial_starter_stop(ser.port)
         return True
 
     def _disconnect(self) -> None:
         with self._lock:
-            port = self._port
+            port = self._port          # capture before clearing
             if self._ser:
                 try:
                     self._ser.close()
@@ -587,6 +652,7 @@ class TeslaBMSSerial:
                 self._ser      = None
                 self._port     = None
                 self.connected = False
+        # Re-enable serial-starter for this port now that we have released it.
         if port:
             self._serial_starter_start(port)
 
@@ -630,7 +696,7 @@ class TeslaBMSSerial:
             expect_reply = False
 
         for attempt in range(1, CMD_RETRIES + 1):
-            write_error_port = None
+            write_error_port = None   # set if a write error forces inline disconnect
 
             with self._lock:
                 if not self._ser or not self._ser.is_open:
@@ -638,6 +704,7 @@ class TeslaBMSSerial:
                     return False
                 try:
                     self._ser.reset_input_buffer()
+                    # Write
                     self._ser.write(frame_out)
                     log.info(f"→ CMD 0x{cmd:02X} (attempt {attempt}/{CMD_RETRIES})"
                              + (f" shunt={current_a:+.1f}A stale={staleness}"
@@ -648,11 +715,13 @@ class TeslaBMSSerial:
                         self._ser.close()
                     except Exception:
                         pass
-                    write_error_port = self._port
+                    write_error_port = self._port   # capture before clearing
                     self._ser      = None
                     self._port     = None
                     self.connected = False
+                    # fall through — lock is released, then we restart serial-starter below
 
+                # Read reply within the same lock — no gap where bytes can be interleaved
                 if write_error_port is None and expect_reply:
                     try:
                         raw = self._ser.read(1)
@@ -669,6 +738,7 @@ class TeslaBMSSerial:
                 elif write_error_port is None and not expect_reply:
                     return True   # control commands need no reply
 
+            # Re-enable serial-starter if we had a write error and cleared the port
             if write_error_port:
                 self._serial_starter_start(write_error_port)
                 return False
@@ -678,6 +748,7 @@ class TeslaBMSSerial:
             if attempt < CMD_RETRIES:
                 time.sleep(CMD_RETRY_DELAY_S)
 
+        # All retries exhausted
         log.error(f"send_command(0x{cmd:02X}): failed after {CMD_RETRIES} attempts — disconnecting")
         self._disconnect()
         return False
@@ -685,6 +756,7 @@ class TeslaBMSSerial:
     # ─── Frame parser ─────────────────────────────────────────────────────────
 
     def _parse_frame(self, payload: bytes) -> bool:
+        """Decode all 34 payload bytes and update instance attributes."""
         try:
             # ── Live telemetry ─────────────────────────────────────────────
             pack_v_raw,   = struct.unpack_from(">H", payload, 0)
@@ -714,6 +786,8 @@ class TeslaBMSSerial:
             under_t,     = struct.unpack_from("b",  payload, 19)
             num_modules  = payload[20]
             num_strings  = payload[21]
+
+            # Overcurrent threshold — 0.1A resolution
             over_i_raw,  = struct.unpack_from(">H", payload, 22)
 
             self.eep_overvoltage        = over_v_raw  / 1000.0
@@ -722,7 +796,7 @@ class TeslaBMSSerial:
             self.eep_undertemp          = float(under_t)
             self.eep_num_modules        = num_modules
             self.eep_num_strings        = max(num_strings, 1)
-            self.eep_overcurrent_thresh = over_i_raw  / 10.0
+            self.eep_overcurrent_thresh = over_i_raw  / 10.0   # 0.1A → A
 
             # ── Extended fields (v2.0) ─────────────────────────────────────
             self.status_flags      = payload[24]
@@ -747,6 +821,7 @@ class TeslaBMSSerial:
             self.last_frame_time = time.time()
             self.frame_count    += 1
 
+            # ── Bookkeeping ───────────────────────────────────────────────────
             log.debug(
                 f"#{self.frame_count}: "
                 f"{self.voltage:.2f}V {self.current:+.1f}A "
@@ -763,6 +838,14 @@ class TeslaBMSSerial:
             return False
 
     # ─── Background reader loop ───────────────────────────────────────────────
+    #
+    # The ESP32 is purely request-reply — it never sends unsolicited frames.
+    # This loop sleeps until the next poll interval, then sends an extended
+    # CMD_SEND_DATA frame that carries the Venus SmartShunt current so the
+    # ESP32 can use it for SOC integration (ping-pong exchange).
+    # send_command handles the read, retry, and disconnect logic.
+    # No "hunt for start byte" is needed or correct for this protocol.
+    #
 
     def _reader_loop(self) -> None:
         log.info("Reader thread started.")
