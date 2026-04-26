@@ -1117,7 +1117,7 @@ def calc_dcl(bms: TeslaBMSSerial, cfg: BmsConfig) -> float:
 _history = {"min_v": None, "max_v": None, "min_t": None, "max_t": None}
 
 
-def publish(bms: TeslaBMSSerial, svc: VeDbusService, cfg: BmsConfig) -> bool:
+def publish(bms: TeslaBMSSerial, svc: VeDbusService, cfg: BmsConfig, shunt: "ShuntMonitor | None" = None) -> bool:
 
     # ── 1. One-shot contactor control triggers ────────────────────────────────
     # /Control/Startup and /Control/Shutdown: write 1 to fire the command.
@@ -1367,7 +1367,7 @@ def main() -> None:
     svc = build_dbus_service(bus, cfg)
     log.info(f"D-Bus service '{DBUS_SERVICE_NAME}' registered.")
 
-    GLib.timeout_add(PUBLISH_INTERVAL_MS, lambda: publish(bms, svc, cfg))
+    GLib.timeout_add(PUBLISH_INTERVAL_MS, lambda: publish(bms, svc, cfg, shunt))
 
     mainloop = GLib.MainLoop()
 
