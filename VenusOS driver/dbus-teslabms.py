@@ -112,7 +112,15 @@ from vedbus import VeDbusService           # noqa: E402
 #  Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-AH_PER_MODULE = 232.0   # Ah per Tesla module (6S 74P, 232 Ah)
+AH_PER_MODULE    = 232.0   # Ah per Tesla module (6S 74P, 232 Ah)
+CELLS_PER_MODULE = 6       # Tesla module is 6S — 6 cells in series per module
+
+# ── Current sensor ────────────────────────────────────────────────────────────
+# Set to True  if a current sensor is wired to the ESP32.
+# Set to False if no current sensor is present (e.g. using a SmartShunt only).
+# When False, /Dc/0/Current is NOT published so the SmartShunt reading on
+# D-Bus is used by DVCC instead of being overwritten with a zero/stale value.
+HAS_CURRENT_SENSOR = True
 
 # ── Charge / discharge limits — hard-coded for this installation ──────────────
 # These are the values used at runtime.  To change them, edit here and redeploy.
@@ -128,11 +136,11 @@ CHARGE_VOLTAGE_MARGIN = 0.05    # V per cell (CVL safety margin subtracted from 
 LOW_CELL_VOLTAGE      = 3.10    # V per cell (DCL taper onset as lowest cell approaches UV trip)
 LOW_SOC_CUTOFF        = 5.0     # % (hard DCL floor — zero discharge below this SOC)
 LOW_SOC_DERATE_START  = 15.0    # % (SOC at which DCL begins linearly tapering toward zero)
-COMMS_LOSS_CVL        = 24.0    # V (pack CVL ceiling applied when BMS comms is lost)
+COMMS_LOSS_CVL_PER_CELL = 4.0   # V/cell — safety CVL ceiling when BMS comms is lost; pack value = this × cell_count
 
 # Timing
 SERIAL_TIMEOUT_S    = 3.5    # read timeout inside send_command — generous margin above ESP32 response latency
-PROBE_TIMEOUT_S     = 1.0    # per-port read timeout used only during port discovery (ESP32 responds in <10 ms)
+PROBE_TIMEOUT_S     = 3.5    # per-port read timeout used only during port discovery — match SERIAL_TIMEOUT_S to avoid spurious probe failures on a slow or booting ESP32
 POLL_INTERVAL_S     = 2.0    # how often Pi sends CMD 0x03 to request data
 CMD_RETRIES         = 3      # number of attempts before declaring a command failed
 CMD_RETRY_DELAY_S   = 1.0    # pause between retries — lets the ESP32 drain any converter noise before the next command arrives
@@ -258,7 +266,7 @@ class BmsConfig:
     low_cell_voltage      = float(LOW_CELL_VOLTAGE)
     low_soc_cutoff        = float(LOW_SOC_CUTOFF)
     low_soc_derate_start  = float(LOW_SOC_DERATE_START)
-    comms_loss_cvl        = float(COMMS_LOSS_CVL)
+    comms_loss_cvl_per_cell = float(COMMS_LOSS_CVL_PER_CELL)
 
     def effective_max_charge_current(self, overcurrent_threshold: float) -> float:
         return min(self.max_charge_current, overcurrent_threshold)
@@ -389,7 +397,7 @@ class TeslaBMSSerial:
         self.eep_overcurrent_thresh = 350.0   # A — from EEPROM OVERCURRENT_THRESHOLD_A
 
         # ── Derived ───────────────────────────────────────────────────────────
-        self.cell_count  = 6
+        self.cell_count  = CELLS_PER_MODULE   # 1 module = 6 series cells; updated after first frame
         self.capacity_ah = 232.0
 
         # ── Connection ────────────────────────────────────────────────────────
@@ -751,10 +759,11 @@ class TeslaBMSSerial:
             self.max_temp       = float(max_t)
 
             # ── Derived topology ───────────────────────────────────────────
-            self.cell_count  = self.eep_num_modules // self.eep_num_strings
-            self.capacity_ah = round(
-                (self.eep_num_modules / self.eep_num_strings) * AH_PER_MODULE, 1
-            )
+            # Each Tesla module is 6S — multiply modules-per-string by CELLS_PER_MODULE
+            # to get the number of series cells used for CVL/CCL/DCL calculations.
+            modules_per_string = max(self.eep_num_modules // self.eep_num_strings, 1)
+            self.cell_count  = modules_per_string * CELLS_PER_MODULE
+            self.capacity_ah = round(modules_per_string * AH_PER_MODULE, 1)
 
             self.last_frame_time = time.time()
             self.frame_count    += 1
@@ -1000,6 +1009,14 @@ def calc_dynamic_cvl(bms: TeslaBMSSerial, cfg: BmsConfig) -> float:
     """
     cell_count = max(bms.cell_count, 1)
 
+    float_pack      = cfg.pack_float_voltage(cell_count)
+    absorption_pack = cfg.pack_absorption_voltage(cell_count)
+
+    # In storage mode the BMS wants to hold a lower SOC.  Target float voltage
+    # so chargers do not push to the full absorption ceiling.
+    if bms.overlord_state == OVERLORD_STORAGE:
+        return float_pack
+
     # Fall back to avg if per-cell data not yet received
     hi = bms.highest_cell_v if bms.highest_cell_v > 0.0 else bms.avg_cell_volt
     av = bms.avg_cell_volt   if bms.avg_cell_volt  > 0.0 else hi
@@ -1007,9 +1024,6 @@ def calc_dynamic_cvl(bms: TeslaBMSSerial, cfg: BmsConfig) -> float:
     spread      = max(hi - av, 0.0)
     safe_cell   = bms.eep_overvoltage - spread - cfg.charge_voltage_margin   # margin keeps CVL below hard OV trip
     dynamic_cvl = round(safe_cell * cell_count, 2)
-
-    absorption_pack = cfg.pack_absorption_voltage(cell_count)
-    float_pack      = cfg.pack_float_voltage(cell_count)
 
     return max(float_pack, min(absorption_pack, dynamic_cvl))
 
@@ -1145,15 +1159,16 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, cfg: BmsConfig) -> bool:
 
     if not online:
         svc["/State"] = 10   # error / comm fault
-        # ── Comms-loss safety: cap CVL at the safety-net voltage ──────────────
+        # ── Comms-loss safety: cap CVL at the per-cell safety voltage × cell_count ─
         # and zero all current limits so DVCC stops active charging/discharging.
-        # CVL is set to COMMS_LOSS_CVL rather than 0.0 so that chargers which
-        # ignore CCL=0 still cannot charge above a safe ceiling.
+        # CVL is set to a non-zero safety ceiling so that chargers which ignore
+        # CCL=0 still cannot charge above a safe pack voltage.
+        safety_cvl = round(cfg.comms_loss_cvl_per_cell * max(bms.cell_count, 1), 2)
         log.warning(
-            f"BMS offline — setting CVL to safety-net {cfg.comms_loss_cvl:.1f}V "
+            f"BMS offline — setting CVL to safety-net {safety_cvl:.1f}V "
             "and zeroing CCL/DCL to prevent blind charging/discharging"
         )
-        svc["/Info/MaxChargeVoltage"]    = cfg.comms_loss_cvl
+        svc["/Info/MaxChargeVoltage"]    = safety_cvl
         svc["/Info/MaxChargeCurrent"]    = 0.0
         svc["/Info/MaxDischargeCurrent"] = 0.0
         svc["/Io/AllowToCharge"]                    = 0
@@ -1174,11 +1189,12 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, cfg: BmsConfig) -> bool:
     # stale limits for up to OFFLINE_TIMEOUT seconds.
     if not bms.data_fresh:
         age = int(time.time() - bms.last_frame_time)
+        safety_cvl = round(cfg.comms_loss_cvl_per_cell * max(bms.cell_count, 1), 2)
         log.warning(
-            f"BMS data stale ({age}s) — setting CVL to safety-net {cfg.comms_loss_cvl:.1f}V "
+            f"BMS data stale ({age}s) — setting CVL to safety-net {safety_cvl:.1f}V "
             "and zeroing CCL/DCL to prevent blind charging/discharging"
         )
-        svc["/Info/MaxChargeVoltage"]    = cfg.comms_loss_cvl
+        svc["/Info/MaxChargeVoltage"]    = safety_cvl
         svc["/Info/MaxChargeCurrent"]    = 0.0
         svc["/Info/MaxDischargeCurrent"] = 0.0
         svc["/Io/AllowToCharge"]                    = 0
@@ -1204,9 +1220,10 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, cfg: BmsConfig) -> bool:
     svc["/Contactor/State"]     = bms.contactor_state
     svc["/Contactor/StateName"] = contactor_state_name(bms.contactor_state)
 
-    # Item 4: only publish current when the ESP32 has an internal current sensor.
-    # Without one, publishing 0 A would overwrite the SmartShunt reading in DVCC.
-    if bms.current_sensor_present:
+    # Only publish /Dc/0/Current when HAS_CURRENT_SENSOR is True (hard-coded
+    # setting at the top of this file).  When False the path is left as None
+    # so DVCC picks up the SmartShunt current instead of being overwritten.
+    if HAS_CURRENT_SENSOR:
         svc["/Dc/0/Current"] = round(bms.current, 2)
     else:
         svc["/Dc/0/Current"] = None
