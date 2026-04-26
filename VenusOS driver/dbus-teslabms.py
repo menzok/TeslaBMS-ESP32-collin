@@ -120,7 +120,7 @@ CELLS_PER_MODULE = 6       # Tesla module is 6S — 6 cells in series per module
 # Set to False if no current sensor is present (e.g. using a SmartShunt only).
 # When False, /Dc/0/Current is NOT published so the SmartShunt reading on
 # D-Bus is used by DVCC instead of being overwritten with a zero/stale value.
-HAS_CURRENT_SENSOR = True
+HAS_CURRENT_SENSOR = False
 
 # ── Charge / discharge limits — hard-coded for this installation ──────────────
 # These are the values used at runtime.  To change them, edit here and redeploy.
@@ -1226,7 +1226,7 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, cfg: BmsConfig) -> bool:
     if HAS_CURRENT_SENSOR:
         svc["/Dc/0/Current"] = round(bms.current, 2)
     else:
-        svc["/Dc/0/Current"] = None
+        svc["/Dc/0/Current"] = round(shunt.current_a, 2) if shunt else 0.0
 
     # ── 4. Cell / temperature — real min/max (items 5-8) ─────────────────────
     svc["/System/NrOfCellsPerBattery"] = bms.cell_count
