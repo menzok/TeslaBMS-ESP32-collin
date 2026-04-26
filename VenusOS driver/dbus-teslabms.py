@@ -810,7 +810,7 @@ class TeslaBMSSerial:
                 # Refresh shunt monitor and embed current in the poll frame
                 if self._shunt_monitor:
                     self._shunt_monitor.update()
-                    shunt_a   = self._shunt_monitor.current_a
+                    shunt_a   = -self._shunt_monitor.current_a
                     staleness = self._shunt_monitor.staleness
                 else:
                     shunt_a, staleness = 0.0, 255
