@@ -1211,7 +1211,14 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, cfg: BmsConfig, shunt: "Shu
     # ── 3. Core telemetry ─────────────────────────────────────────────────────
     svc["/Soc"]              = bms.soc
     svc["/Dc/0/Voltage"]     = round(bms.voltage,     2)
-    svc["/Dc/0/Power"]       = round(bms.power,       0)
+   
+    if HAS_CURRENT_SENSOR:
+        svc["/Dc/0/Power"]   = round(bms.power, 0)
+        svc["/Dc/0/Current"] = round(bms.current, 2)
+    else:
+        current = round(shunt.current_a, 2) if shunt else 0.0
+        svc["/Dc/0/Current"] = current
+        svc["/Dc/0/Power"]   = round(current * bms.voltage, 0) if shunt else 0.0
     svc["/Dc/0/Temperature"] = round(bms.temperature, 1)
 
     # Update actual contactor state on the read-only status paths.
@@ -1219,14 +1226,6 @@ def publish(bms: TeslaBMSSerial, svc: VeDbusService, cfg: BmsConfig, shunt: "Shu
     # any value written by Node-RED or dbus commands.
     svc["/Contactor/State"]     = bms.contactor_state
     svc["/Contactor/StateName"] = contactor_state_name(bms.contactor_state)
-
-    # Only publish /Dc/0/Current when HAS_CURRENT_SENSOR is True (hard-coded
-    # setting at the top of this file).  When False the path is left as None
-    # so DVCC picks up the SmartShunt current instead of being overwritten.
-    if HAS_CURRENT_SENSOR:
-        svc["/Dc/0/Current"] = round(bms.current, 2)
-    else:
-        svc["/Dc/0/Current"] = round(shunt.current_a, 2) if shunt else 0.0
 
     # ── 4. Cell / temperature — real min/max (items 5-8) ─────────────────────
     svc["/System/NrOfCellsPerBattery"] = bms.cell_count
