@@ -180,11 +180,11 @@ Slave  → 01 10 01 40 00 01 01 E1
 | Reserved | — | — | 110 | 61 | — | |
 | Device type | — | UInt | 171 | 1 | R | |
 | Device name | — | ASC | 172 | 12 | R/W | Read/write as ASCII |
-| Invalid data | — | UInt | 184 | 1 | R | Protocol number; returns 1 for this protocol |
+| Protocol number | — | UInt | 184 | 1 | R | Protocol identifier; returns 1 for this protocol |
 | Reserved | — | — | 185 | 1 | — | |
 | Device serial number | — | ASC | 186 | 12 | R | |
 | Reserved | — | — | 198 | 2 | — | |
-| Invalid / internal | — | UInt | 200 | 1 | — | Internal command |
+| Internal command register | — | UInt | 200 | 1 | — | Reserved for internal firmware use; do not access |
 | Working mode | — | UInt | 201 | 1 | R | 0=Boot; 1=Standby; 2=Grid (mains); 3=Off-grid (inverting); 4=Bypass; 5=Charge; 6=Fault |
 | Grid voltage (RMS) | 0.1 V | Int | 202 | 1 | R | |
 | Grid frequency | 0.01 Hz | Int | 203 | 1 | R | |
@@ -202,7 +202,7 @@ Slave  → 01 10 01 40 00 01 01 E1
 | Battery average voltage | 0.1 V | Int | 215 | 1 | R | |
 | Battery average current | 0.1 A | Int | 216 | 1 | R | |
 | Battery average power | 1 W | Int | 217 | 1 | R | |
-| Invalid / internal | — | — | 218 | 1 | — | Internal command |
+| Internal command register | — | — | 218 | 1 | — | Reserved for internal firmware use; do not access |
 | PV average voltage | 0.1 V | Int | 219 | 1 | R | |
 | PV average current | 0.1 A | Int | 220 | 1 | R | |
 | Reserved | — | — | 221 | 2 | — | |
@@ -213,13 +213,13 @@ Slave  → 01 10 01 40 00 01 01 E1
 | Inverter temperature | 1 °C | Int | 227 | 1 | R | |
 | Reserved | — | — | 228 | 1 | — | |
 | Battery percentage (SOC) | 1 % | UInt | 229 | 1 | R | |
-| Invalid / internal | — | — | 230 | 1 | — | Internal command |
+| Internal command register | — | — | 230 | 1 | — | Reserved for internal firmware use; do not access |
 | Power flow status | — | UInt | 231 | 1 | R | 16-bit bitmask, see §6 |
 | Battery filtered average current | 0.1 A | Int | 232 | 1 | R | Positive = charging; negative = discharging |
 | Inverter charge current average | 0.1 A | Int | 233 | 1 | R | |
 | PV charge current average | 0.1 A | Int | 234 | 1 | R | |
-| Invalid / internal | — | — | 235 | 1 | — | |
-| Invalid / internal | — | — | 236 | 1 | — | |
+| Internal command register | — | — | 235 | 1 | — | Reserved for internal firmware use; do not access |
+| Internal command register | — | — | 236 | 1 | — | Reserved for internal firmware use; do not access |
 | Reserved | — | — | 237 | 63 | — | |
 
 ---
@@ -281,13 +281,13 @@ Slave  → 01 10 01 40 00 01 01 E1
 | Power-on mode | — | UInt | 406 | 1 | R/W | 0=Local or remote power-on; 1=Local only; 2=Remote only |
 | Reserved | — | — | 407 | 13 | — | |
 | Remote switch | — | UInt | 420 | 1 | R/W | 0=Remote off; 1=Remote on |
-| Invalid / internal | — | — | 421 | 1 | — | |
+| Internal command register | — | — | 421 | 1 | — | Reserved for internal firmware use; do not access |
 | Reserved | — | — | 422 | 3 | — | |
 | Force EQ charge | — | UInt | 425 | 1 | W | Write 1 to manually force one EQ charge cycle |
 | Exit fault-lock state | — | UInt | 426 | 1 | W | Write 1 to exit fault-locked state (only effective while in fault mode) |
-| Invalid / internal | — | — | 427 | 1 | — | |
+| Internal command register | — | — | 427 | 1 | — | Reserved for internal firmware use; do not access |
 | Reserved | — | — | 428 | 22 | — | |
-| Invalid / internal | — | — | 450 | 7 | — | |
+| Internal command registers | — | — | 450 | 7 | — | Reserved for internal firmware use; do not access |
 | Reserved | — | — | 457 | 3 | — | |
 | Clear records | — | — | 460 | 1 | W | Write 0xAA to clear run and fault logs (effective when NOT in off-grid mode) |
 | Reset user parameters | — | — | 461 | 1 | W | Write 0xAA to restore user parameters to factory defaults (effective when NOT in off-grid mode) |
