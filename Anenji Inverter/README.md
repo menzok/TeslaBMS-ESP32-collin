@@ -57,13 +57,13 @@ Installer actions:
 
 ### Bundled manufacturer document
 
-The translated manufacturer protocol document discussed during driver development
-is included in this folder as:
+The translated manufacturer Modbus protocol document is included in this folder as:
 
-- [`1号通讯协议.html`](1%E5%8F%B7%E9%80%9A%E8%AE%AF%E5%8D%8F%E8%AE%AE.html)
+- [`modbus-protocol.md`](modbus-protocol.md)
 
-Open it in a browser to review the source register descriptions and CRC examples
-that informed this staged driver.
+It covers the full register map, frame format, fault/warning codes, power flow flags,
+and CRC algorithm — translated to English from the original Chinese specification
+(version June 2025, v1.0).
 
 ## 4. Configuration
 
