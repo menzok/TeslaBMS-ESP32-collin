@@ -99,3 +99,11 @@ This is an active development fork focused on stability, correctness, and full V
 Contributions, issues, and feature requests are welcome.
 
 ---
+
+## Staging Area: ANENJI Inverter Venus OS Driver
+
+The `Anenji Inverter/` directory contains a **standalone Venus OS driver** for the
+ANENJI ANJ-3KW-24V-LV-WIFI inverter/charger. This code is **not part of the TeslaBMS-ESP32
+project** and is staged here temporarily. It will be moved to its own dedicated repository.
+
+See [Anenji Inverter/README.md](Anenji%20Inverter/README.md) for full documentation.
