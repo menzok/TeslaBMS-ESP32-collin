@@ -23,7 +23,7 @@ void SOCCalculator::begin()
     uint8_t strings = (eepromdata.parallelStrings > 0) ? eepromdata.parallelStrings : 1;
     _cellsInSeries  = (int)(bms.getNumberOfModules() / strings) * 6;
     if (_cellsInSeries == 0) _cellsInSeries = 1;   // prevent /0 in update()
-    _packCapacityAh = (float)strings * 22.0f; // 22Ah per string for Tesla 18650 modules - adjust if using different cells
+    _packCapacityAh = (float)strings * 232.0f; // 232Ah per string for Tesla 18650 modules (6S 74P) - adjust if using different cells
     _fullConfirmTicks  = 0;
     _emptyConfirmTicks = 0;
     _lastUpdateMs = millis();
@@ -191,7 +191,6 @@ void SOCCalculator::update()
 
 // ─────────────────────────────────────────────────────────────────────────────
 float SOCCalculator::getPackCurrentAmps() const {
-    if (!eepromdata.currentSensorPresent) return 0.0f;
     return _filteredCurrentA;
 }
 

@@ -761,9 +761,10 @@ class TeslaBMSSerial:
             # ── Derived topology ───────────────────────────────────────────
             # Each Tesla module is 6S — multiply modules-per-string by CELLS_PER_MODULE
             # to get the number of series cells used for CVL/CCL/DCL calculations.
+            # Capacity scales with parallel strings only (series wiring adds voltage, not Ah).
             modules_per_string = max(self.eep_num_modules // self.eep_num_strings, 1)
             self.cell_count  = modules_per_string * CELLS_PER_MODULE
-            self.capacity_ah = round(modules_per_string * AH_PER_MODULE, 1)
+            self.capacity_ah = round(self.eep_num_strings * AH_PER_MODULE, 1)
 
             self.last_frame_time = time.time()
             self.frame_count    += 1
